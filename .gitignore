@@ -1,0 +1,11 @@
+target/
+node_modules/
+dist/
+.idea/
+.vscode/
+*.class
+*.log
+.env
+.DS_Store
+tmp/
+llm-cache/

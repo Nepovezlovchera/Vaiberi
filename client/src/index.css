@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    border-color: #27272a;
+  }
+}
+
+/* Custom sleek dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #09090b;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+/* React Flow custom dark background and overrides */
+.react-flow__pane {
+  cursor: grab;
+}
+.react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.react-flow__background-pattern dots {
+  fill: #27272a !important;
+}
+
+.react-flow__handle {
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.react-flow__handle:hover {
+  transform: scale(1.3);
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+/* Monaco decoration line */
+.highlighted-ast-line {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-left: 3px solid #f59e0b !important;
+}
