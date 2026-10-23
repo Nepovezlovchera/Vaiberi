@@ -1,0 +1,31 @@
+services:
+  server:
+    build: ./server
+    ports:
+      - "8080:8080"
+    environment:
+      # Заглушки для работы фронта без бэкенда: SPRING_PROFILES_ACTIVE=stub
+      # LLM (необязательно): без ключа работает только кэш ответов в /app/llm-cache
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_URL: ${LLM_API_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    volumes:
+      - llm-cache:/app/llm-cache
+    # runner запускает чужой код в отдельных JVM внутри контейнера: ограничиваем ресурсы
+    mem_limit: 1g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080"]
+      interval: 10s
+      retries: 10
+
+  # Раскомментировать, когда D1/D2 добавят client/Dockerfile
+  # client:
+  #   build: ./client
+  #   ports:
+  #     - "3000:80"
+  #   depends_on:
+  #     - server
+
+volumes:
+  llm-cache:

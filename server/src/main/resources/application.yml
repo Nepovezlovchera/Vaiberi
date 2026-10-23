@@ -1,0 +1,15 @@
+server:
+  port: 8080
+spring:
+  application:
+    name: java-blueprints
+  # Для работы фронта на заглушках: --spring.profiles.active=stub
+blueprints:
+  runner:
+    timeout-ms: 3000    # watchdog: лимит времени одного запуска (по ТЗ 3000 мс)
+    heap: 256m          # -Xmx для запускаемой программы
+  report:
+    path: verification_report.json   # куда сохраняется отчёт Quality Gate
+  llm:
+    cache-dir: llm-cache
+# LLM (необязательно): переменные окружения LLM_API_KEY, LLM_API_URL, LLM_MODEL
