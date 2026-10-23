@@ -79,46 +79,47 @@
 
 ## ⚡ Быстрый старт (Запуск в одну команду)
 
-### Требования
-- **Docker** и **Docker Compose** (рекомендуется), либо:
-- **JDK 21** и **Node.js 20+** (для ручного запуска).
+### 🥇 Запуск всего проекта одной командой (Docker Compose)
 
-### 1. Запуск через Docker Compose (Рекомендуемый для жюри)
-
-Клонируйте репозиторий и запустите сервисы:
+Для сборки и запуска бэкенда (Spring Boot 3, порт 8080) и веб-студии (React Flow IDE, порт 3000) выполните **одну команду**:
 
 ```bash
-git clone https://github.com/Nepovezlovchera/Vaiberi.git
-cd Vaiberi
-git checkout asakue-dev
-
-# Запуск всей инфраструктуры (бэкенд + фронтенд):
 docker compose up --build
 ```
 
-После старта:
-- **Веб-интерфейс студии**: [http://localhost:3000](http://localhost:3000)
-- **REST & SSE API бэкенда**: [http://localhost:8080](http://localhost:8080)
-- **Swagger / OpenAPI**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+> **Если репозиторий еще не склонирован (One-Liner для терминала):**
+> ```bash
+> git clone https://github.com/Nepovezlovchera/Vaiberi.git && cd Vaiberi && docker compose up --build
+> ```
+> *(В Windows PowerShell: `git clone https://github.com/Nepovezlovchera/Vaiberi.git; cd Vaiberi; docker compose up --build`)*
+
+После завершения сборки перейдите в браузере:
+- 🖥️ **Веб-интерфейс студии**: [http://localhost:3000](http://localhost:3000)
+- ⚙️ **REST & SSE API бэкенда**: [http://localhost:8080](http://localhost:8080)
+- 📑 **Swagger / OpenAPI**: [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
 
 ---
 
-### 2. Локальный запуск без Docker
+### 🚀 Автономный запуск веб-студии без Docker (Мгновенное демо)
 
-#### Бэкенд (Spring Boot 3, Java 21)
-```bash
-cd server
-./mvnw clean spring-boot:run
-```
-*Сервер запустится на порту 8080.*
+Студия оснащена **Dual-Mode**: если бэкенд не запущен, интерфейс автоматически переключается в режим **Demo Sandbox** (все графические функции, анализ $O(n^2)$, 1-Click оптимизация, Monaco Editor и Quality Gate работают локально без внешних зависимостей).
 
-#### Фронтенд (React 18 + Vite)
 ```bash
 cd client
 npm install
 npm run dev
 ```
-*Интерфейс откроется по адресу `http://localhost:5173` (или `http://localhost:3000`).*
+Интерфейс откроется по адресу: [http://localhost:3000](http://localhost:3000)
+
+---
+
+### 🛠️ Локальный запуск бэкенда без Docker (для разработки)
+
+```bash
+cd server
+./mvnw clean spring-boot:run
+```
+*(В Windows: `.\mvnw.cmd clean spring-boot:run`)*
 
 ---
 
