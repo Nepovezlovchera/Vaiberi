@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useStudioStore } from '../../store/useStudioStore';
 import {
   UploadCloud,
@@ -9,12 +9,26 @@ import {
   Moon,
   Workflow,
   ShieldCheck,
+  RefreshCw,
 } from 'lucide-react';
 
 export const TopBar: React.FC = () => {
-  const { runOptimization, runTests, isCompiling, isRunningTests, isOptimized, setCode, addConsoleLog } =
-    useStudioStore();
+  const {
+    runOptimization,
+    runTests,
+    isCompiling,
+    isRunningTests,
+    isOptimized,
+    setCode,
+    addConsoleLog,
+    isBackendOnline,
+    checkBackend,
+  } = useStudioStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    checkBackend();
+  }, [checkBackend]);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -67,9 +81,28 @@ export const TopBar: React.FC = () => {
 
         <div className="h-4 w-px bg-border mx-1" />
 
-        <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+        {/* Live Backend / Demo Mode Status Badge */}
+        <div
+          onClick={checkBackend}
+          className="cursor-pointer transition-transform hover:scale-105"
+          title="Нажмите для повторной проверки связи с бэкендом"
+        >
+          {isBackendOnline ? (
+            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 flex items-center gap-1.5 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Live Backend API (:8080)
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-950/80 text-blue-300 border border-blue-500/40 flex items-center gap-1.5 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-blue-400" />
+              Demo Sandbox Mode
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 text-xs text-zinc-400 ml-1">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Quality Gate Active</span>
+          <span>Quality Gate</span>
         </div>
       </div>
 
@@ -116,7 +149,7 @@ export const TopBar: React.FC = () => {
         </button>
 
         <button
-          onClick={() => alert('Режим интерактивного дебага активирован: точки останова синхронизированы с AST.')}
+          onClick={() => alert('Интерактивный дебаг активирован: точки останова согласованы со строками AST.')}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 border border-border transition"
         >
           <Bug className="w-3.5 h-3.5 text-amber-400" />
@@ -125,7 +158,15 @@ export const TopBar: React.FC = () => {
 
         <div className="h-4 w-px bg-border mx-1" />
 
-        {/* Theme and Status */}
+        {/* Refresh Backend Status & Theme */}
+        <button
+          onClick={checkBackend}
+          className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+          title="Обновить связь с бэкендом"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+        </button>
+
         <button
           className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
           title="Темная тема активна"

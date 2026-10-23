@@ -1,8 +1,9 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
+  MiniMap,
   applyNodeChanges,
   applyEdgeChanges,
   NodeChange,
@@ -24,7 +25,8 @@ import { getLayoutedElements } from './layout';
 import { LayoutGrid, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 
 const FlowCanvasInternal: React.FC = () => {
-  const { nodes, edges, setNodes, setEdges, selectNode, selectedNodeId, addCustomNode } = useStudioStore();
+  const { nodes, edges, setNodes, setEdges, selectNode, selectedNodeId, addCustomNode, deleteSelectedNode } =
+    useStudioStore();
   const { fitView, zoomIn, zoomOut } = useReactFlow();
 
   const nodeTypes = useMemo(
@@ -40,6 +42,22 @@ const FlowCanvasInternal: React.FC = () => {
     }),
     []
   );
+
+  // Клавиатурное удаление выбранного узла (Delete / Backspace)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodeId) {
+        // Проверяем, что фокус не в инпуте редактора
+        const target = e.target as HTMLElement;
+        if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && !target.closest('.monaco-editor')) {
+          e.preventDefault();
+          deleteSelectedNode();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNodeId, deleteSelectedNode]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -158,6 +176,18 @@ const FlowCanvasInternal: React.FC = () => {
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#27272a" />
         <Controls showInteractive={false} className="!bg-surface !border-border !fill-zinc-400 shadow-xl" />
+        <MiniMap
+          nodeStrokeWidth={3}
+          nodeColor={(n) => {
+            if (n.type === 'condition') return '#f59e0b';
+            if (n.type === 'loop') return '#3b82f6';
+            if (n.type === 'method') return '#a855f7';
+            if (n.type === 'return') return '#10b981';
+            return '#64748b';
+          }}
+          className="!bg-surface/80 !border-border !rounded-lg !overflow-hidden shadow-2xl"
+          maskColor="rgba(9, 9, 11, 0.7)"
+        />
       </ReactFlow>
     </div>
   );

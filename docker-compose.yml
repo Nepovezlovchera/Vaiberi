@@ -19,13 +19,13 @@ services:
       interval: 10s
       retries: 10
 
-  # Раскомментировать, когда D1/D2 добавят client/Dockerfile
-  # client:
-  #   build: ./client
-  #   ports:
-  #     - "3000:80"
-  #   depends_on:
-  #     - server
+  client:
+    build: ./client
+    ports:
+      - "3000:80"
+    depends_on:
+      server:
+        condition: service_healthy
 
 volumes:
   llm-cache:

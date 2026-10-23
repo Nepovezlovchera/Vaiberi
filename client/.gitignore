@@ -24,4 +24,6 @@ dist-ssr
 *.sw?
 
 .vite
+*.tsbuildinfo
+
 
