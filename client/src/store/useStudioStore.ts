@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Node, Edge } from '@xyflow/react';
-import { FileItem, CodeIssue, ComplexityMetrics, TestCaseResult, MethodInfo } from '../types/studio';
+import { FileItem, CodeIssue, ComplexityMetrics, TestCaseResult, MethodInfo, SyncStatus } from '../types/studio';
 import {
   INITIAL_JAVA_CODE,
   OPTIMIZED_JAVA_CODE,
@@ -12,88 +12,18 @@ import {
   INITIAL_TESTS,
 } from './mockData';
 import { SAMPLE_MONOLITH_CODE, SAMPLE_MONOLITH_TESTS } from './monolithData';
-import { ApiClient, MethodGraphResponseDto, GraphResponseDto, AnalysisReportDto } from '../api/apiClient';
-import { getLayoutedElements } from '../components/canvas/layout';
+import { ApiClient, MethodGraphResponseDto } from '../api/apiClient';
+import { methodToFlow, methodOfNode, pickInitialMethod, toIssues, toMethodInfos, toMetrics } from './graphMapper';
 
-function transformGraphDtoToFlow(
-  method: MethodGraphResponseDto,
-  allIssues: CodeIssue[] = []
-): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = (method.nodes || []).map((n) => {
-    const isEntry = n.id.endsWith('/entry') || n.type === 'method';
-    const issuesForNode = allIssues.filter(
-      (iss) => iss.nodeId === n.id || (iss.lineStart <= n.data.lineStart && iss.lineEnd >= n.data.lineEnd)
-    );
-    const hasIssue = n.data.hasIssue || issuesForNode.length > 0;
-    const issueId = n.data.issueId || issuesForNode[0]?.id;
-    const loopType = (n.data.loopType as any) || (n.type === 'loop' ? 'foreach' : undefined);
+const SYNC_DEBOUNCE_MS = 600;
 
-    let nodeType: string = n.type;
-    if (nodeType === 'condition' || nodeType === 'if') nodeType = 'condition';
-    else if (nodeType === 'loop' || nodeType === 'for' || nodeType === 'foreach' || nodeType === 'while') nodeType = 'loop';
-    else if (nodeType === 'method') nodeType = 'method';
-    else if (nodeType === 'return') nodeType = 'return';
-    else if (nodeType === 'call') nodeType = 'call';
-    else if (nodeType === 'var') nodeType = 'var';
-    else nodeType = 'op';
+// Последний ответ /api/graph по всем методам: граф другого метода строится без нового запроса
+let graphCache: MethodGraphResponseDto[] = [];
+let syncTimer: ReturnType<typeof setTimeout> | undefined;
+// Номер последнего запроса: ответ на устаревший запрос (код уже поменялся) отбрасывается
+let syncSeq = 0;
 
-    return {
-      id: n.id,
-      type: nodeType,
-      position: { x: 260, y: 100 },
-      data: {
-        label: n.data.label || (isEntry ? 'Метод' : n.type),
-        code: n.data.code,
-        lineStart: n.data.lineStart,
-        lineEnd: n.data.lineEnd,
-        condition: n.data.condition,
-        loopType,
-        hasIssue,
-        issueId,
-        complexityBadge: hasIssue ? 'O(n²)' : undefined,
-      },
-    };
-  });
-
-  const edges: Edge[] = (method.edges || []).map((e) => {
-    let style: React.CSSProperties = { stroke: '#52525b', strokeWidth: 1.5 };
-    let animated = false;
-    let label = e.label || undefined;
-    let sourceHandle: string | undefined = undefined;
-
-    if (e.type === 'true') {
-      style = { stroke: '#10b981', strokeWidth: 2 };
-      animated = true;
-      label = 'Да';
-      sourceHandle = 'true';
-    } else if (e.type === 'false') {
-      style = { stroke: '#ef4444', strokeWidth: 2 };
-      label = 'Нет';
-      sourceHandle = 'false';
-    } else if (e.type === 'body') {
-      style = { stroke: '#3b82f6', strokeWidth: 2 };
-      label = 'Тело';
-      sourceHandle = 'body';
-    } else if (e.type === 'back') {
-      style = { stroke: '#a855f7', strokeWidth: 1.5, strokeDasharray: '4,4' };
-      animated = true;
-      label = 'Повтор';
-    }
-
-    return {
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      type: 'smoothstep',
-      label,
-      sourceHandle,
-      animated,
-      style,
-    };
-  });
-
-  return getLayoutedElements(nodes, edges);
-}
+const timeNow = () => new Date().toTimeString().split(' ')[0];
 
 interface StudioState {
   // Файлы и пресеты
@@ -134,6 +64,11 @@ interface StudioState {
   isRunningTests: boolean;
   isCompiling: boolean;
   isMutating: boolean;
+
+  // Состояние связи редактор/граф/анализ с бэкендом
+  syncStatus: SyncStatus;
+  syncError: string | null;
+  analysisLoaded: boolean;
 
   // Интерактивный дебаг / трассировка
   isDebugging: boolean;
@@ -199,6 +134,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   isCompiling: false,
   isMutating: false,
 
+  syncStatus: 'idle',
+  syncError: null,
+  analysisLoaded: false,
+
   isDebugging: false,
   debugStepIndex: 0,
 
@@ -210,94 +149,58 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       get().addConsoleLog(`[${now}] Подключение к Spring Boot API: УСПЕШНО (Live Backend Mode) ✔`);
       await get().refreshGraphAndAnalysis();
     } else {
-      get().addConsoleLog(`[${now}] Бэкенд оффлайн: активирован автономный Demo Sandbox режим ✔`);
+      set({ syncStatus: 'offline' });
+      get().addConsoleLog(`[${now}] Бэкенд оффлайн: показаны демонстрационные данные`);
     }
   },
 
   refreshGraphAndAnalysis: async (sourceCode?: string, methodId?: string) => {
-    const { isBackendOnline, code, activeMethodId, issues } = get();
-    const currentCode = sourceCode ?? code;
-    if (!isBackendOnline) return;
-
+    clearTimeout(syncTimer);
+    if (!get().isBackendOnline) {
+      set({ syncStatus: 'offline' });
+      return;
+    }
+    const currentCode = sourceCode ?? get().code;
+    const files = [{ path: 'Main.java', source: currentCode }];
+    const seq = ++syncSeq;
+    set({ syncStatus: 'syncing', syncError: null });
     try {
-      const filePayload = [{ path: 'Main.java', source: currentCode }];
+      // Граф запрашивается по всем методам (без methodId), иначе список методов схлопнулся бы до одного
+      const [graph, analysis] = await Promise.all([ApiClient.fetchGraph(files), ApiClient.fetchAnalysis(files)]);
+      if (seq !== syncSeq) return;
 
-      // Параллельно запрашиваем граф и анализ
-      const [graphRes, analysisRes]: [GraphResponseDto, AnalysisReportDto] = await Promise.all([
-        ApiClient.fetchGraph(filePayload, methodId || activeMethodId || undefined).catch((err) => {
-          console.warn('fetchGraph error:', err);
-          return { methods: [], metrics: {} } as unknown as GraphResponseDto;
-        }),
-        ApiClient.fetchAnalysis(filePayload).catch((err) => {
-          console.warn('fetchAnalysis error:', err);
-          return { issues: issues, metrics: {} } as unknown as AnalysisReportDto;
-        }),
-      ]);
+      graphCache = graph.methods;
+      const issues = toIssues(analysis.issues);
+      const methodsList = toMethodInfos(graph.methods);
+      const wanted = methodId ?? get().activeMethodId;
+      const activeMethodId = wanted && methodsList.some((m) => m.methodId === wanted)
+        ? wanted
+        : pickInitialMethod(methodsList, issues);
+      const active = graphCache.find((m) => m.methodId === activeMethodId);
+      const flow = active ? methodToFlow(active, issues) : { nodes: [], edges: [] };
+      const keepSelection = flow.nodes.some((n) => n.id === get().selectedNodeId);
 
-      const now = new Date().toTimeString().split(' ')[0];
-      const newIssues: CodeIssue[] = (analysisRes.issues || []).map((i) => ({
-        id: i.id,
-        nodeId: i.nodeId,
-        title: i.title,
-        severity: i.severity,
-        lineStart: i.lineStart,
-        lineEnd: i.lineEnd,
-        fileName: i.fileName,
-        description: i.description,
-        risk: i.risk,
-        recommendation: i.recommendation,
-        suggestedCode: i.suggestedCode,
+      set((state) => ({
+        methodsList,
+        activeMethodId,
+        nodes: flow.nodes,
+        edges: flow.edges,
+        selectedNodeId: keepSelection ? state.selectedNodeId : null,
+        issues,
+        selectedIssueId: issues.some((i) => i.id === state.selectedIssueId) ? state.selectedIssueId : null,
+        metrics: toMetrics(analysis.metrics),
+        syncStatus: 'ok',
+        analysisLoaded: true,
       }));
-
-      const newMetrics: ComplexityMetrics = {
-        current: analysisRes.metrics?.currentComplexity || 'O(n²)',
-        predicted: analysisRes.metrics?.predictedComplexity || 'O(n)',
-        speedup: analysisRes.metrics?.expectedSpeedup || (newIssues.length > 0 ? 'до 5.2x' : '1.0x'),
-        cyclomatic: analysisRes.metrics?.cyclomaticComplexity || 1,
-        linesOfCode: analysisRes.metrics?.linesOfCode || currentCode.split('\n').length,
-        methodsCount: analysisRes.metrics?.methodCount || (graphRes.methods?.length || 1),
-      };
-
-      const methodsList: MethodInfo[] = (graphRes.methods || []).map((m) => ({
-        methodId: m.methodId,
-        signature: m.methodSignature,
-        lineStart: m.lineStart,
-        lineEnd: m.lineEnd,
-      }));
-
-      // Находим нужный метод
-      let targetMethod = graphRes.methods?.find((m) => m.methodId === methodId);
-      if (!targetMethod && activeMethodId) {
-        targetMethod = graphRes.methods?.find((m) => m.methodId === activeMethodId);
-      }
-      if (!targetMethod && graphRes.methods && graphRes.methods.length > 0) {
-        // Предпочитаем метод с дефектами или printReport / processOrders
-        targetMethod =
-          graphRes.methods.find((m) => m.methodId.includes('printReport') || m.methodId.includes('processOrders') || m.methodId.includes('findDuplicate')) ||
-          graphRes.methods[0];
-      }
-
-      if (targetMethod) {
-        const layouted = transformGraphDtoToFlow(targetMethod, newIssues);
-        set({
-          nodes: layouted.nodes,
-          edges: layouted.edges,
-          methodsList,
-          activeMethodId: targetMethod.methodId,
-          issues: newIssues,
-          metrics: newMetrics,
-        });
-      } else {
-        set({
-          issues: newIssues,
-          metrics: newMetrics,
-          methodsList,
-        });
-      }
-
-      get().addConsoleLog(`[${now}] AST синхронизирован: метод «${targetMethod?.methodId || 'Active'}» (${newIssues.length} дефектов) ✔`);
+      get().addConsoleLog(
+        `[${timeNow()}] AST синхронизирован: методов ${methodsList.length}, дефектов ${issues.length}, сложность ${analysis.metrics.currentComplexity} ✔`
+      );
     } catch (err: any) {
-      console.error('Ошибка обновления графа:', err);
+      if (seq !== syncSeq) return;
+      // Граф и дефекты остаются от последнего удачного разбора, ошибка видна на холсте и в консоли
+      const message = err?.message || 'Ошибка разбора кода';
+      set({ syncStatus: 'error', syncError: message });
+      get().addConsoleLog(`[${timeNow()}] [ERROR] Разбор кода: ${message}`);
     }
   },
 
@@ -338,8 +241,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   setActiveMethodId: async (methodId: string) => {
-    set({ activeMethodId: methodId });
-    await get().refreshGraphAndAnalysis(get().code, methodId);
+    const graph = graphCache.find((m) => m.methodId === methodId);
+    // Нет в кэше (бэкенд ещё не отвечал) — строим заново
+    if (!graph) return get().refreshGraphAndAnalysis(get().code, methodId);
+    const { nodes, edges } = methodToFlow(graph, get().issues);
+    set({ activeMethodId: methodId, nodes, edges, selectedNodeId: null, activeLineRange: null });
   },
 
   selectFile: (fileId: string) => {
@@ -360,7 +266,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   setCode: (code: string) => {
+    if (code === get().code) return;
     set({ code });
+    if (!get().isBackendOnline) return;
+    // Ответ на запрос, отправленный до этой правки, уже устарел
+    syncSeq++;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => get().refreshGraphAndAnalysis(), SYNC_DEBOUNCE_MS);
   },
 
   setNodes: (nodesOrUpdater) => {
@@ -398,6 +310,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   selectIssue: (issueId: string) => {
     const issue = get().issues.find((i) => i.id === issueId);
     if (issue) {
+      const methodId = methodOfNode(get().methodsList, issue.nodeId);
+      if (methodId && methodId !== get().activeMethodId) get().setActiveMethodId(methodId);
       set({
         selectedIssueId: issueId,
         selectedNodeId: issue.nodeId,

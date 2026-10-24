@@ -1,6 +1,27 @@
 import dagre from '@dagrejs/dagre';
 import { Node, Edge } from '@xyflow/react';
 
+// Размеры узлов для dagre: единый источник для расчёта и для смещения позиции
+function getNodeSize(type?: string): { width: number; height: number } {
+  switch (type) {
+    case 'condition':
+      return { width: 280, height: 70 };
+    case 'loop':
+      return { width: 300, height: 100 };
+    case 'method':
+      return { width: 260, height: 80 };
+    case 'try':
+    case 'switch':
+      return { width: 280, height: 90 };
+    case 'break':
+    case 'continue':
+    case 'throw':
+      return { width: 220, height: 56 };
+    default:
+      return { width: 260, height: 70 };
+  }
+}
+
 export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'TB') {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
@@ -14,9 +35,7 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'T
   });
 
   nodes.forEach((node) => {
-    const width = node.type === 'condition' ? 280 : node.type === 'loop' ? 300 : 260;
-    const height = node.type === 'method' ? 80 : node.type === 'loop' ? 100 : 70;
-    dagreGraph.setNode(node.id, { width, height });
+    dagreGraph.setNode(node.id, getNodeSize(node.type));
   });
 
   edges.forEach((edge) => {
@@ -27,8 +46,7 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'T
 
   const layoutedNodes = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
-    const width = node.type === 'condition' ? 280 : node.type === 'loop' ? 300 : 260;
-    const height = node.type === 'method' ? 80 : node.type === 'loop' ? 100 : 70;
+    const { width, height } = getNodeSize(node.type);
 
     return {
       ...node,

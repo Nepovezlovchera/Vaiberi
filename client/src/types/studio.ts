@@ -6,19 +6,30 @@ export type NodeType =
   | 'op'         // Выражение / операция
   | 'call'       // Вызов внешнего сервиса/метода
   | 'return'     // Возврат значения (терминал)
+  | 'try'        // try / catch / finally
+  | 'switch'     // switch с ветками
+  | 'break'      // break
+  | 'continue'   // continue
+  | 'throw'      // throw
   | 'raw';       // Произвольный / необработанный блок
 
-export type EdgeType = 'next' | 'true' | 'false' | 'body' | 'catch';
+export type EdgeType = 'next' | 'true' | 'false' | 'body' | 'catch' | 'finally';
 
 export interface GraphNodeData {
   label?: string;
   code: string;
+  /** Однострочный текст для отображения на узле (у живого графа задаёт graphMapper; code — исходник целиком, с телом и комментариями) */
+  text?: string;
   lineStart: number;
   lineEnd: number;
   hasIssue?: boolean;
   issueId?: string;
+  /** Все проблемы узла (id из CodeIssue) */
+  issueIds?: string[];
+  /** Заголовок первой проблемы узла (для значка на узле), задаёт graphMapper */
+  issueTitle?: string;
   condition?: string;
-  loopType?: 'for' | 'foreach' | 'while';
+  loopType?: 'for' | 'foreach' | 'while' | 'do';
   complexityBadge?: string;
   [key: string]: unknown;
 }
@@ -47,7 +58,14 @@ export interface CodeIssue {
   risk: string;
   recommendation: string;
   suggestedCode?: string;
+  /** NESTED_LOOP | COSTLY_CALL_IN_LOOP | LONG_METHOD | HIGH_CYCLOMATIC | DUPLICATION (приходит от бэкенда) */
+  type?: string;
+  complexityBefore?: string;
+  complexityAfter?: string;
 }
+
+/** Состояние связи редактор/граф/анализ с бэкендом */
+export type SyncStatus = 'idle' | 'syncing' | 'ok' | 'error' | 'offline';
 
 export interface ComplexityMetrics {
   current: string;
