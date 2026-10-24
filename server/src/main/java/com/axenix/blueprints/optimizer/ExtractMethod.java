@@ -63,7 +63,10 @@ import java.util.stream.Collectors;
  */
 public final class ExtractMethod {
 
-    private static final int MIN_SEGMENT_LINES = 5;
+    // Небольшие блоки нужны для повторного запуска автофикса на уже созданном
+    // Part-методе: после первого извлечения в нём часто остаётся 3–4 строки
+    // безопасной логики, которую также можно вынести.
+    private static final int MIN_SEGMENT_LINES = 3;
 
     private ExtractMethod() {}
 
