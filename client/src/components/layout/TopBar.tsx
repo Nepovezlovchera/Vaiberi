@@ -57,6 +57,7 @@ export const TopBar: React.FC = () => {
       reader.onload = (event) => {
         const content = event.target?.result as string;
         if (content) {
+          useStudioStore.setState({ baselineCode: content });
           setCode(content);
           addConsoleLog(`[${new Date().toTimeString().split(' ')[0]}] Загружен файл ${safeName} (${content.split('\n').length} строк)`);
           refreshGraphAndAnalysis(content);
