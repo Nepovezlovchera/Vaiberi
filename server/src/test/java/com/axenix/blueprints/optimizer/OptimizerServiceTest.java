@@ -238,4 +238,67 @@ class OptimizerServiceTest {
                 com.axenix.blueprints.model.Dto.CompareMode.EXACT));
         assertTrue(v.behaviorMatched(), v.testResults().toString() + v.compileOutput() + r.files().get(0).source());
     }
+
+    private static final String DUP = String.join("\n",
+            "import java.util.*;",
+            "public class Main {",
+            "    static int first(List<Integer> xs) {",
+            "        if (xs == null || xs.isEmpty()) {",
+            "            return -1;",
+            "        }",
+            "        int best = xs.get(0);",
+            "        for (int x : xs) {",
+            "            if (x > best) best = x;",
+            "        }",
+            "        return best;",
+            "    }",
+            "    static int second(List<Integer> ys) {",
+            "        if (ys == null || ys.isEmpty()) {",
+            "            return -1;",
+            "        }",
+            "        int top = ys.get(0);",
+            "        for (int y : ys) {",
+            "            if (y > top) top = y;",
+            "        }",
+            "        return top;",
+            "    }",
+            "    static int third(List<Integer> xs) {",
+            "        if (xs == null || xs.isEmpty()) {",
+            "            return 0;",
+            "        }",
+            "        return xs.size();",
+            "    }",
+            "    public static void main(String[] a) {",
+            "        System.out.println(first(List.of(3, 9, 4)) + \" \" + second(new ArrayList<>()) + \" \" + third(List.of(1, 2)));",
+            "    }",
+            "}");
+
+    private void assertSameBehavior(List<ProjectFile> before, List<ProjectFile> after) {
+        VerificationReport v = verify.verify(new com.axenix.blueprints.model.Dto.VerifyRequest(before, after, "Main",
+                List.of(new com.axenix.blueprints.model.Dto.TestCase("t", "", null)),
+                com.axenix.blueprints.model.Dto.CompareMode.EXACT));
+        assertTrue(v.behaviorMatched(), v.testResults().toString() + v.compileOutput() + after.get(0).source());
+    }
+
+    @Test
+    void duplicatedConditionBecomesSharedHelper() {
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", DUP));
+        CodeIssue i = analyzer.analyze(files).issues().stream()
+                .filter(x -> x.type().equals("DUPLICATION") && x.title().equals("Повторяющееся условие")).findFirst().orElseThrow();
+        OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, i.id(), false));
+        String code = r.files().get(0).source();
+        assertTrue(code.contains("isNullOrEmpty("), code);
+        assertTrue(analyzer.analyze(r.files()).issues().stream().noneMatch(x -> x.title().equals("Повторяющееся условие")), code);
+        assertSameBehavior(files, r.files());
+    }
+
+    @Test
+    void duplicatedMethodDelegatesToFirst() {
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", DUP));
+        CodeIssue i = analyzer.analyze(files).issues().stream()
+                .filter(x -> x.type().equals("DUPLICATION") && x.title().equals("Дублирование логики")).findFirst().orElseThrow();
+        OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, i.id(), false));
+        assertTrue(r.files().get(0).source().contains("return first(ys);"), r.files().get(0).source());
+        assertSameBehavior(files, r.files());
+    }
 }

@@ -47,12 +47,21 @@ public class OptimizerServiceImpl implements OptimizerService {
                 return new OptimizeResponse(pm.render(), "TEMPLATE", done.get());
             }
         }
-        if (issue.type().equals("LONG_METHOD")) {
+        if (issue.type().equals("LONG_METHOD") || issue.type().equals("HIGH_CYCLOMATIC")) {
             Optional<String> done = ExtractMethod.apply(pm.units.get(issue.fileName()), issue.lineStart());
             if (done.isPresent()) {
                 pm.touch(issue.fileName());
                 return new OptimizeResponse(pm.render(), "TEMPLATE", done.get()
                         + " Поведение подтвердите через Quality Gate.");
+            }
+        }
+        if (issue.type().equals("DUPLICATION")) {
+            Optional<String> done = issue.title().startsWith("Дублирование логики")
+                    ? DuplicationFix.method(pm, issue.nodeId().substring(0, issue.nodeId().length() - "/entry".length()))
+                    : DuplicationFix.condition(pm.units.get(issue.fileName()), issue.lineStart());
+            if (done.isPresent()) {
+                pm.touch(issue.fileName());
+                return new OptimizeResponse(pm.render(), "TEMPLATE", done.get() + " Поведение подтвердите через Quality Gate.");
             }
         }
         if (req.allowLlm()) return viaLlm(req.files(), issue);

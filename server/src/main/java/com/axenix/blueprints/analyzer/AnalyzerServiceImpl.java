@@ -120,6 +120,7 @@ public class AnalyzerServiceImpl implements AnalyzerService {
             for (IfStmt st : e.getValue().findAll(IfStmt.class)) {
                 String cond = st.getCondition().toString().replaceAll("\\s+", "");
                 if (cond.length() < MIN_DUP_CONDITION_LENGTH) continue;
+                if (isSharedHelperCall(st.getCondition())) continue; // уже вынесено в общий метод
                 IfStmt first = seen.putIfAbsent(cond, st);
                 if (first == null) continue;
                 int from = st.getCondition().getRange().map(r -> r.begin.line).orElse(1);
@@ -201,8 +202,15 @@ public class AnalyzerServiceImpl implements AnalyzerService {
         return best;
     }
 
+    /** Условие вида helper(a, b) — вызов общего метода без объекта-получателя, повтором не считается. */
+    private static boolean isSharedHelperCall(com.github.javaparser.ast.expr.Expression c) {
+        return c instanceof com.github.javaparser.ast.expr.MethodCallExpr call && call.getScope().isEmpty()
+                && call.getArguments().stream().allMatch(a -> a instanceof com.github.javaparser.ast.expr.NameExpr
+                || a instanceof com.github.javaparser.ast.expr.LiteralExpr);
+    }
+
     /** Тело метода с переименованными локальными переменными и параметрами (v1, v2, ...). */
-    static String normalizedBody(MethodRef m) {
+    public static String normalizedBody(MethodRef m) {
         Node copy = m.decl().clone();
         Map<String, String> names = new LinkedHashMap<>();
         // параметры берём у оригинала: у компактного конструктора это компоненты record (вне клона)
