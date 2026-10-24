@@ -85,8 +85,11 @@ public final class ExtractMethod {
                 .forEach(containers::add);
         for (BlockStmt c : containers) {
             List<Statement> st = new ArrayList<>(c.getStatements());
+            // серии без возврата значений или с одним значением предпочтительнее: класс-результат — запасной вариант
             Plan best = null;
             long bestScore = -1;
+            Plan bestMulti = null;
+            long bestMultiScore = -1;
             for (int i = 0; i < st.size(); i++) {
                 for (int j = i; j < st.size(); j++) {
                     int seg = span(st.get(i), st.get(j));
@@ -94,14 +97,21 @@ public final class ExtractMethod {
                     // во вложенном блоке вынос ВСЕГО содержимого лишь переносит сложность в другой метод
                     if (c != body && i == 0 && j == st.size() - 1) continue;
                     long score = Math.min(seg, methodSpan - seg);
-                    if (score <= bestScore) continue;
+                    if (score <= bestScore && score <= bestMultiScore) continue;
                     Plan p = plan(m, c, st, i, j);
-                    if (p != null) {
+                    if (p == null) continue;
+                    if (p.outs().size() > 1) {
+                        if (score > bestMultiScore) {
+                            bestMulti = p;
+                            bestMultiScore = score;
+                        }
+                    } else if (score > bestScore) {
                         best = p;
                         bestScore = score;
                     }
                 }
             }
+            if (best == null) best = bestMulti;
             if (best != null) return Optional.of(build(m, c, st, best));
         }
         return Optional.empty();
@@ -163,7 +173,10 @@ public final class ExtractMethod {
 
     // ---------------------------------------------------------------- planning
 
-    private record Plan(int from, int to, Map<String, Type> params, String outName, Type outType, boolean outDeclaredInside) {}
+    /** outs — значения, нужные после серии (имя → тип); inside — какие из них объявлены внутри серии. */
+    private record Plan(int from, int to, Map<String, Type> params, Map<String, Type> outs, Set<String> inside) {}
+
+    private static final int MAX_OUTS = 10;
 
     private static Plan plan(MethodDeclaration m, BlockStmt container, List<Statement> st, int from, int to) {
         boolean topLevel = container == m.getBody().orElse(null);
@@ -232,15 +245,26 @@ public final class ExtractMethod {
                 }
             }
         }
-        List<String> outs = new ArrayList<>();
-        for (String a : assigned) if (params.containsKey(a) && usedOutside.contains(a)) outs.add(a);
-        outs.addAll(declaredInside.keySet());
-        if (outs.size() > 1) return null;
+        Map<String, Type> outs = new LinkedHashMap<>();
+        Set<String> inside = new HashSet<>();
+        for (String a : params.keySet()) if (assigned.contains(a) && usedOutside.contains(a)) outs.put(a, params.get(a));
+        for (Map.Entry<String, Type> e : declaredInside.entrySet()) {
+            outs.put(e.getKey(), e.getValue());
+            inside.add(e.getKey());
+        }
+        if (outs.size() > MAX_OUTS) return null;
+        if (outs.size() > 1) {
+            // несколько значений возвращаем через маленький класс-результат: только в обычном классе, без дженериков,
+            // и вынос не должен быть почти всем методом (иначе новый метод сам станет длинным)
+            TypeDeclaration<?> owner = (TypeDeclaration<?>) m.getParentNode().get();
+            if (!(owner instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration cd) || cd.isInterface()) return null;
+            if (!m.getTypeParameters().isEmpty()) return null;
+            int segSpan = span(st.get(from), st.get(to));
+            if (segSpan * 2 > span(m) + 2) return null;
+            for (Type t : outs.values()) if (t.isVarType()) return null;
+        }
         // переменная, объявленная в серии не на верхнем уровне (например, в for) и нужная после, невозможна — Java не пустит.
-        if (outs.isEmpty()) return new Plan(from, to, params, null, null, false);
-        String o = outs.get(0);
-        boolean inside = declaredInside.containsKey(o);
-        return new Plan(from, to, params, o, inside ? declaredInside.get(o) : params.get(o), inside);
+        return new Plan(from, to, params, outs, inside);
     }
 
     // ---------------------------------------------------------------- building
@@ -253,7 +277,17 @@ public final class ExtractMethod {
         String name = base + 1;
         for (int k = 2; names.contains(name); k++) name = base + k;
 
-        String ret = p.outType() == null ? "void" : p.outType().toString();
+        boolean multi = p.outs().size() > 1;
+        String holder = null;
+        if (multi) {
+            Set<String> members = owner.getMembers().stream()
+                    .filter(x -> x instanceof TypeDeclaration<?>).map(x -> ((TypeDeclaration<?>) x).getNameAsString())
+                    .collect(Collectors.toSet());
+            String hbase = Character.toUpperCase(name.charAt(0)) + name.substring(1) + "Result";
+            holder = hbase;
+            for (int k = 2; members.contains(holder); k++) holder = hbase + k;
+        }
+        String ret = p.outs().isEmpty() ? "void" : multi ? holder : p.outs().values().iterator().next().toString();
         String args = String.join(", ", p.params().keySet());
         String decl = p.params().entrySet().stream().map(e -> e.getValue() + " " + e.getKey()).collect(Collectors.joining(", "));
         String typeParams = m.getTypeParameters().isEmpty() ? "" : "<" + m.getTypeParameters().stream()
@@ -271,23 +305,55 @@ public final class ExtractMethod {
         int firstLine = st.get(p.from()).getBegin().map(b -> b.line).orElse(0);
         int lastLine = st.get(p.to()).getEnd().map(e -> e.line).orElse(0);
         for (int k = p.from(); k <= p.to(); k++) hb.addStatement(st.get(k).clone());
-        if (p.outName() != null) hb.addStatement(new ReturnStmt(new NameExpr(p.outName())));
+        BodyDeclaration<?> holderClass = null;
+        if (multi) {
+            String fields = p.outs().entrySet().stream().map(e -> "final " + e.getValue() + " " + e.getKey() + ";")
+                    .collect(Collectors.joining(" "));
+            String ctorParams = p.outs().entrySet().stream().map(e -> e.getValue() + " " + e.getKey())
+                    .collect(Collectors.joining(", "));
+            String assigns = p.outs().keySet().stream().map(n -> "this." + n + " = " + n + ";").collect(Collectors.joining(" "));
+            ParseResult<BodyDeclaration<?>> hr = parser.parseBodyDeclaration("private static final class " + holder + " { "
+                    + fields + " " + holder + "(" + ctorParams + ") { " + assigns + " } }");
+            if (!hr.isSuccessful() || hr.getResult().isEmpty()) return failure();
+            holderClass = hr.getResult().get();
+            hb.addStatement(new ReturnStmt(parser.parseExpression("new " + holder + "(" + String.join(", ", p.outs().keySet()) + ")")
+                    .getResult().orElseThrow()));
+        } else if (!p.outs().isEmpty()) {
+            hb.addStatement(new ReturnStmt(new NameExpr(p.outs().keySet().iterator().next())));
+        }
 
         String call = name + "(" + args + ")";
-        String callStmt;
-        if (p.outName() == null) callStmt = call + ";";
-        else if (p.outDeclaredInside()) callStmt = p.outType() + " " + p.outName() + " = " + call + ";";
-        else callStmt = p.outName() + " = " + call + ";";
-        Statement replacement = parser.parseStatement(callStmt).getResult().orElse(null);
-        if (replacement == null) return failure();
+        List<Statement> replacement = new ArrayList<>();
+        if (p.outs().isEmpty()) {
+            replacement.add(parser.parseStatement(call + ";").getResult().orElse(null));
+        } else if (!multi) {
+            String o = p.outs().keySet().iterator().next();
+            replacement.add(parser.parseStatement((p.inside().contains(o) ? p.outs().get(o) + " " : "") + o + " = " + call + ";")
+                    .getResult().orElse(null));
+        } else {
+            Set<String> used = m.findAll(com.github.javaparser.ast.expr.SimpleName.class).stream()
+                    .map(com.github.javaparser.ast.expr.SimpleName::asString).collect(Collectors.toSet());
+            String res = "result";
+            for (int k = 2; used.contains(res); k++) res = "result" + k;
+            replacement.add(parser.parseStatement(holder + " " + res + " = " + call + ";").getResult().orElse(null));
+            for (Map.Entry<String, Type> e : p.outs().entrySet()) {
+                String pre = p.inside().contains(e.getKey()) ? e.getValue() + " " : "";
+                replacement.add(parser.parseStatement(pre + e.getKey() + " = " + res + "." + e.getKey() + ";")
+                        .getResult().orElse(null));
+            }
+        }
+        if (replacement.stream().anyMatch(java.util.Objects::isNull)) return failure();
 
         for (int k = p.to(); k >= p.from(); k--) body.getStatements().remove(st.get(k));
-        body.getStatements().add(p.from(), replacement);
+        for (int k = 0; k < replacement.size(); k++) body.getStatements().add(p.from() + k, replacement.get(k));
         int idx = owner.getMembers().indexOf(m);
         owner.getMembers().add(idx + 1, helper);
+        if (holderClass != null) owner.getMembers().add(idx + 2, holderClass);
+        String outsText = p.outs().isEmpty() ? "" : multi
+                ? ", возвращает " + p.outs().size() + " значений через класс «" + holder + "»"
+                : ", возвращает «" + p.outs().keySet().iterator().next() + "»";
         return "Выделен метод «" + name + "» из «" + m.getNameAsString() + "» (строки " + firstLine + "–" + lastLine + ")"
-                + (p.params().isEmpty() ? "" : ", параметры: " + args)
-                + (p.outName() == null ? "" : ", возвращает «" + p.outName() + "»") + ".";
+                + (p.params().isEmpty() ? "" : ", параметры: " + args) + outsText + ".";
     }
 
     private static String failure() {

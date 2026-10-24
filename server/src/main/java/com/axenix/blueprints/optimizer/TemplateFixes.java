@@ -24,7 +24,9 @@ import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -165,21 +167,32 @@ public final class TemplateFixes {
         Statement ib = inner.getBody();
         Statement only = ib instanceof BlockStmt blk ? (blk.getStatements().size() == 1 ? blk.getStatement(0) : null) : ib;
         if (!(only instanceof IfStmt iff) || iff.getElseStmt().isPresent()) return Optional.empty();
-        if (!(iff.getCondition() instanceof MethodCallExpr eq) || !eq.getNameAsString().equals("equals")
-                || eq.getScope().isEmpty() || eq.getArguments().size() != 1) return Optional.empty();
-        Expression s1 = eq.getScope().get();
-        Expression s2 = eq.getArgument(0);
-        Expression keyA;
-        Expression keyB;
-        if (refs(s1, a) && !refs(s1, b) && refs(s2, b) && !refs(s2, a)) {
-            keyA = s1;
-            keyB = s2;
-        } else if (refs(s2, a) && !refs(s2, b) && refs(s1, b) && !refs(s1, a)) {
-            keyA = s2;
-            keyB = s1;
-        } else {
-            return Optional.empty();
+        // условие — конъюнкция: ровно одно x.equals(y) даёт ключ, остальные части (например, a != b) остаются проверкой
+        List<Expression> conjuncts = new ArrayList<>();
+        flattenAnd(iff.getCondition(), conjuncts);
+        Expression keyA = null;
+        Expression keyB = null;
+        List<Expression> residual = new ArrayList<>();
+        for (Expression c : conjuncts) {
+            if (keyA == null && c instanceof MethodCallExpr eq && eq.getNameAsString().equals("equals")
+                    && eq.getScope().isPresent() && eq.getArguments().size() == 1) {
+                Expression s1 = eq.getScope().get();
+                Expression s2 = eq.getArgument(0);
+                if (refs(s1, a) && !refs(s1, b) && refs(s2, b) && !refs(s2, a)) {
+                    keyA = s1;
+                    keyB = s2;
+                    continue;
+                } else if (refs(s2, a) && !refs(s2, b) && refs(s1, b) && !refs(s1, a)) {
+                    keyA = s2;
+                    keyB = s1;
+                    continue;
+                }
+            }
+            residual.add(c);
         }
+        if (keyA == null) return Optional.empty();
+        // остальные части проверяются только для совпавших по ключу пар: они обязаны быть без побочных эффектов
+        for (Expression r : residual) if (!pureCondition(r)) return Optional.empty();
         // ключ внутреннего элемента вычисляется вне внешнего цикла: только по b, без чужих имён и безымянных вызовов
         for (NameExpr n : keyB.findAll(NameExpr.class)) if (!n.getNameAsString().equals(b)) return Optional.empty();
         for (MethodCallExpr mc : keyB.findAll(MethodCallExpr.class)) if (mc.getScope().isEmpty()) return Optional.empty();
@@ -211,7 +224,16 @@ public final class TemplateFixes {
         Statement guard = parseStmt(parser, "if (" + matches + " != null) { for (" + elem + " " + b + " : " + matches + ") { } }");
         if (mapDecl == null || fill == null || lookup == null || guard == null) return Optional.empty();
         ForEachStmt newInner = guard.asIfStmt().getThenStmt().asBlockStmt().getStatement(0).asForEachStmt();
-        newInner.setBody(iff.getThenStmt().clone());
+        Statement innerBody = iff.getThenStmt().clone();
+        if (!residual.isEmpty()) {
+            Expression rest = residual.get(0).clone();
+            for (int k = 1; k < residual.size(); k++) {
+                rest = new com.github.javaparser.ast.expr.BinaryExpr(rest, residual.get(k).clone(),
+                        com.github.javaparser.ast.expr.BinaryExpr.Operator.AND);
+            }
+            innerBody = new IfStmt(rest, innerBody, null);
+        }
+        newInner.setBody(innerBody);
 
         int idx = body.getStatements().indexOf(inner);
         body.getStatements().add(idx, lookup);
@@ -437,6 +459,32 @@ public final class TemplateFixes {
             }
         }
         return false;
+    }
+
+    private static void flattenAnd(Expression e, List<Expression> out) {
+        Expression x = e;
+        while (x instanceof com.github.javaparser.ast.expr.EnclosedExpr en) x = en.getInner();
+        if (x instanceof com.github.javaparser.ast.expr.BinaryExpr be
+                && be.getOperator() == com.github.javaparser.ast.expr.BinaryExpr.Operator.AND) {
+            flattenAnd(be.getLeft(), out);
+            flattenAnd(be.getRight(), out);
+        } else {
+            out.add(e);
+        }
+    }
+
+    /** Условие без присваиваний, ++/--, вызовов методов, new и лямбд: его можно не вычислять для лишних пар. */
+    private static boolean pureCondition(Expression e) {
+        if (!e.findAll(AssignExpr.class).isEmpty() || !e.findAll(MethodCallExpr.class).isEmpty()
+                || !e.findAll(com.github.javaparser.ast.expr.ObjectCreationExpr.class).isEmpty()
+                || !e.findAll(com.github.javaparser.ast.expr.LambdaExpr.class).isEmpty()) return false;
+        for (UnaryExpr u : e.findAll(UnaryExpr.class)) {
+            switch (u.getOperator()) {
+                case PREFIX_INCREMENT, PREFIX_DECREMENT, POSTFIX_INCREMENT, POSTFIX_DECREMENT -> { return false; }
+                default -> { }
+            }
+        }
+        return true;
     }
 
     private static boolean refs(Expression e, String name) {

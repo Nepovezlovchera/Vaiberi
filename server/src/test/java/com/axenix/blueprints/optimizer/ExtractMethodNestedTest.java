@@ -83,4 +83,59 @@ class ExtractMethodNestedTest {
         assertEquals(before.stdout(), res.stdout(), after);
         assertEquals(before.exitCode(), res.exitCode());
     }
+
+    private static final String ACC = String.join("\n",
+            "import java.util.Scanner;",
+            "public class Main {",
+            "    static void report(int total, int min, int max) { System.out.println(total + \" \" + min + \" \" + max); }",
+            "    static void stats(int[] xs) {",
+            "        int total = 0;",
+            "        int min = Integer.MAX_VALUE;",
+            "        int max = Integer.MIN_VALUE;",
+            "        int evens = 0;",
+            "        int odds = 0;",
+            "        for (int x : xs) {",
+            "            total += x;",
+            "            if (x < min) {",
+            "                min = x;",
+            "            }",
+            "            if (x > max) {",
+            "                max = x;",
+            "            }",
+            "            if (x % 2 == 0) {",
+            "                evens++;",
+            "            } else {",
+            "                odds++;",
+            "            }",
+            "            if (x > 100) {",
+            "                System.out.println(\"big \" + x);",
+            "            }",
+            "        }",
+            "        report(total, min, max);",
+            "        if (evens > 100) {",
+            "            return;",
+            "        }",
+            "        System.out.println(evens + \"/\" + odds);",
+            "    }",
+            "    public static void main(String[] args) {",
+            "        Scanner in = new Scanner(System.in);",
+            "        int n = Integer.parseInt(in.nextLine().trim());",
+            "        int[] xs = new int[n];",
+            "        for (int i = 0; i < n; i++) xs[i] = Integer.parseInt(in.nextLine().trim());",
+            "        stats(xs);",
+            "    }",
+            "}");
+
+    /** Несколько изменяемых накопителей в цикле: значения возвращаются через маленький класс-результат. */
+    @Test
+    void severalAccumulatorsAreReturnedThroughResultClass() {
+        String after = extract(ACC, 4);
+        assertTrue(after.contains("Result"), after);
+        String in = "6\n5\n-3\n120\n8\n8\n1\n";
+        RunResponse before = run(ACC, in);
+        RunResponse res = run(after, in);
+        assertTrue(res.compiled(), res.compileOutput() + after);
+        assertEquals(before.stdout(), res.stdout(), after);
+        assertEquals(0, res.exitCode());
+    }
 }

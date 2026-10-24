@@ -137,8 +137,11 @@ public final class DuplicationFix {
                 if (v.getNameAsString().equals(id)) t = v.getType();
             }
             if (t == null) {
+                // имя типа/enum в начале выражения: Type.method(...) или Type.CONSTANT (например, OrderKind.LARGE)
                 boolean typeName = Character.isUpperCase(id.charAt(0)) && n.getParentNode()
-                        .filter(pn -> pn instanceof MethodCallExpr mc && mc.getScope().filter(sc -> sc == n).isPresent()).isPresent();
+                        .filter(pn -> pn instanceof MethodCallExpr mc && mc.getScope().filter(sc -> sc == n).isPresent()
+                                || pn instanceof com.github.javaparser.ast.expr.FieldAccessExpr fa
+                                && fa.getScope() == n).isPresent();
                 if (typeName) continue;
                 return null;
             }
