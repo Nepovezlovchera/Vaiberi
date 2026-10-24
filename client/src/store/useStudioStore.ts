@@ -712,7 +712,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           return;
         }
         if (res.stdout) {
-          res.stdout.split('\n').filter((l: string) => l.trim().length > 0).forEach((line: string) => {
+          // Пустые строки вывода сохраняем (кроме хвостовой): консоль должна показывать вывод программы как есть
+          res.stdout.replace(/\r?\n$/, '').split(/\r?\n/).forEach((line: string) => {
             get().addConsoleLog(`[STDOUT] ${line}`);
           });
         }

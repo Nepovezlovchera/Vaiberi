@@ -12,7 +12,8 @@ export const ConsolePane: React.FC = () => {
   }, [consoleLogs]);
 
   const handleRun = () => {
-    runCodeInConsole(consoleStdin);
+    // Программа читает stdin построчно: последняя строка должна заканчиваться переводом строки
+    runCodeInConsole(consoleStdin && !consoleStdin.endsWith('\n') ? consoleStdin + '\n' : consoleStdin);
   };
 
   const handleClear = () => {
@@ -41,12 +42,18 @@ export const ConsolePane: React.FC = () => {
 
         {/* Console Quick Run with custom Stdin */}
         <div className="flex items-center gap-1.5">
-          <input
-            type="text"
-            placeholder="Ввод stdin..."
+          <textarea
+            rows={2}
+            placeholder="Ввод stdin (несколько строк; Ctrl+Enter — запуск)"
             value={consoleStdin}
             onChange={(e) => setConsoleStdin(e.target.value)}
-            className="w-28 sm:w-36 md:w-44 px-2 py-0.5 bg-zinc-900 border border-border rounded text-[11px] text-zinc-200 placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-500"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                handleRun();
+              }
+            }}
+            className="w-44 sm:w-56 md:w-72 px-2 py-0.5 bg-zinc-900 border border-border rounded text-[11px] text-zinc-200 placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-500 resize-y max-h-32"
           />
           <button
             onClick={handleRun}
@@ -74,7 +81,7 @@ export const ConsolePane: React.FC = () => {
           return (
             <div
               key={index}
-              className={`leading-relaxed ${
+              className={`leading-relaxed whitespace-pre-wrap break-words ${
                 isError
                   ? 'text-rose-400'
                   : isSuccess
