@@ -54,6 +54,7 @@ const FlowCanvasInternal: React.FC = () => {
     connectNodes,
     mutationError,
     dismissMutationError,
+    theme,
   } = useStudioStore();
   const { fitView, zoomIn, zoomOut, getIntersectingNodes, screenToFlowPosition } = useReactFlow();
 
@@ -151,12 +152,12 @@ const FlowCanvasInternal: React.FC = () => {
     laidOutKey.current = key;
     const layouted = getLayoutedElements(nodes, edges);
     setNodes(layouted.nodes);
-    setTimeout(() => fitView({ padding: 0.2 }), 50);
+    setTimeout(() => fitView({ padding: 0.06, maxZoom: 1.25 }), 50);
   }, [nodesInitialized, nodes, edges, setNodes, fitView]);
 
-  // Подгоняем вид при смене метода или набора узлов
+  // Подгоняем вид при смене метода или набора узлов (крупный масштаб)
   useEffect(() => {
-    const t = setTimeout(() => fitView({ padding: 0.2 }), 50);
+    const t = setTimeout(() => fitView({ padding: 0.06, maxZoom: 1.25 }), 50);
     return () => clearTimeout(t);
   }, [activeMethodId, nodes.length, fitView]);
 
@@ -205,7 +206,7 @@ const FlowCanvasInternal: React.FC = () => {
     const layouted = getLayoutedElements(nodes, edges);
     setNodes([...layouted.nodes]);
     setEdges([...layouted.edges]);
-    setTimeout(() => fitView({ padding: 0.2 }), 50);
+    setTimeout(() => fitView({ padding: 0.08, maxZoom: 1.25 }), 50);
   }, [nodes, edges, setNodes, setEdges, fitView]);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -239,7 +240,7 @@ const FlowCanvasInternal: React.FC = () => {
   }, [nodes, selectedNodeId, dropTargetId, isMutating]);
 
   return (
-    <div className="relative w-full h-full bg-[#0a0a0c] overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
+    <div className="relative w-full h-full bg-background overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
       {/* Method Dropdown Selector (Слайды 3, 4 ТЗ) */}
       {methodsList.length > 0 && (
         <div className="absolute top-3 left-4 z-10 flex items-center gap-2 bg-surface/90 backdrop-blur border border-border px-2.5 py-1.5 rounded-lg shadow-xl">
@@ -247,7 +248,7 @@ const FlowCanvasInternal: React.FC = () => {
           <select
             value={activeMethodId || ''}
             onChange={(e) => setActiveMethodId(e.target.value)}
-            className="bg-zinc-900 border border-border text-xs text-blue-400 font-semibold rounded px-2 py-0.5 focus:outline-none focus:border-blue-500 font-mono max-w-[280px] truncate"
+            className="bg-surface-elevated border border-border text-xs text-[#f37022] font-semibold rounded px-2 py-0.5 focus:outline-none focus:border-[#f37022] font-mono max-w-[280px] truncate"
           >
             {/* Без пустого варианта select показал бы первый метод, хотя холст пуст */}
             {!activeMethodId && (
@@ -351,7 +352,7 @@ const FlowCanvasInternal: React.FC = () => {
           className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 rounded transition"
           title="Автовыравнивание графа (Dagre)"
         >
-          <LayoutGrid className="w-3.5 h-3.5 text-blue-400" />
+          <LayoutGrid className="w-3.5 h-3.5 text-[#f37022]" />
           <span>Автолейаут</span>
         </button>
         <div className="w-px h-4 bg-border mx-1" />
@@ -391,26 +392,31 @@ const FlowCanvasInternal: React.FC = () => {
         onConnect={onConnect}
         onPaneClick={onPaneClick}
         fitView
-        fitViewOptions={{ padding: 0.25 }}
+        fitViewOptions={{ padding: 0.08, maxZoom: 1.25 }}
         minZoom={0.2}
         maxZoom={2.5}
         defaultEdgeOptions={{
           type: 'smoothstep',
-          style: { stroke: '#4b5563', strokeWidth: 2 },
+          style: { stroke: theme === 'dark' ? '#4a3b53' : '#b8b1a5', strokeWidth: 2 },
         }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#27272a" />
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={16}
+          size={1}
+          color={theme === 'dark' ? '#2d2436' : '#d5cfc5'}
+        />
         <MiniMap
           nodeStrokeWidth={3}
           nodeColor={(n) => {
             if (n.type === 'condition') return '#f59e0b';
-            if (n.type === 'loop') return '#3b82f6';
-            if (n.type === 'method') return '#a855f7';
+            if (n.type === 'loop') return '#f37022';
+            if (n.type === 'method') return '#5f308c';
             if (n.type === 'return') return '#10b981';
-            return '#64748b';
+            return '#8e8494';
           }}
-          className="!bg-surface/80 !border-border !rounded-lg !overflow-hidden shadow-2xl"
-          maskColor="rgba(9, 9, 11, 0.7)"
+          className="!bg-surface/85 !border-border !rounded-lg !overflow-hidden shadow-2xl backdrop-blur-sm"
+          maskColor={theme === 'dark' ? 'rgba(8, 4, 7, 0.75)' : 'rgba(247, 246, 244, 0.75)'}
         />
       </ReactFlow>
     </div>

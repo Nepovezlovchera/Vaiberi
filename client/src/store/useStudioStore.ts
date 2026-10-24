@@ -46,8 +46,8 @@ interface StudioState {
   files: FileItem[];
   activeFileId: string;
   code: string;
-  /** Исходный (до оптимизации) код импортированного файла; null — берётся исходный код. */
-  baselineCode: string | null;
+  activePreset: 'demo' | 'monolith';
+  setPreset: (preset: 'demo' | 'monolith') => Promise<void>;
 
   // Сеть / Бэкенд
   isBackendOnline: boolean;
@@ -198,9 +198,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   files: INITIAL_FILES,
   activeFileId: 'file-main',
   code: INITIAL_JAVA_CODE,
-  baselineCode: null,
-  isProgramRunning: false,
-  programSessionId: null,
+  activePreset: 'demo',
 
   isBackendOnline: false,
 
@@ -310,6 +308,42 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set({ syncStatus: 'error', syncError: message });
       get().addConsoleLog(`[${timeNow()}] [ERROR] Разбор кода: ${message}`);
     }
+  },
+
+  setPreset: async (preset: 'demo' | 'monolith') => {
+    const isMono = preset === 'monolith';
+    const newCode = isMono ? SAMPLE_MONOLITH_CODE : INITIAL_JAVA_CODE;
+    const newTests = isMono ? SAMPLE_MONOLITH_TESTS : INITIAL_TESTS;
+    const now = new Date().toTimeString().split(' ')[0];
+
+    set((state) => ({
+      activePreset: preset,
+      code: newCode,
+      tests: newTests,
+      isOptimized: false,
+      files: state.files.map((root) => {
+        if (root.children) {
+          return {
+            ...root,
+            children: root.children.map((pkg) => {
+              if (pkg.name === 'com.example' && pkg.children) {
+                return {
+                  ...pkg,
+                  children: pkg.children.map((f) =>
+                    f.id === 'file-main' ? { ...f, code: newCode } : f
+                  ),
+                };
+              }
+              return pkg;
+            }),
+          };
+        }
+        return root;
+      }),
+    }));
+
+    get().addConsoleLog(`[${now}] Переключен пресет: ${isMono ? 'Эталонный монолит интернет-магазина (487 строк, Слайд 2 ТЗ)' : 'Метод processOrders (Слайд 4 ТЗ)'}`);
+    await get().refreshGraphAndAnalysis(newCode);
   },
 
   setActiveMethodId: async (methodId: string) => {
@@ -679,7 +713,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   runTests: async () => {
-    const { isBackendOnline, code, tests, baselineCode } = get();
+    const { isBackendOnline, code, tests, activePreset } = get();
     set({ isRunningTests: true, bottomTab: 'tests' });
     const now = new Date().toTimeString().split(' ')[0];
     get().addConsoleLog(`[${now}] Запуск набора тестов (${tests.length} сценариев) на Quality Gate...`);
@@ -697,7 +731,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           expectedStdout: t.expectedStdout,
         }));
 
-        const originalSource = baselineCode ?? INITIAL_JAVA_CODE;
+        const originalSource = activePreset === 'monolith' ? SAMPLE_MONOLITH_CODE : INITIAL_JAVA_CODE;
 
         await ApiClient.streamVerify(
           {

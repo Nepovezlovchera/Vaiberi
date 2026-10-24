@@ -21,11 +21,11 @@ export const BottomTabsPane: React.FC = () => {
             }}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t transition border-b-2 ${
               bottomLayoutMode === 'tabs' && bottomTab === 'code'
-                ? 'text-white border-blue-500 bg-surface'
-                : 'text-zinc-400 border-transparent hover:text-zinc-200 hover:bg-zinc-800/40'
+                ? 'text-zinc-100 border-[#f37022] bg-surface font-semibold'
+                : 'text-zinc-400 border-transparent hover:text-zinc-200 hover:bg-surface/50'
             }`}
           >
-            <Code className="w-3.5 h-3.5 text-blue-400" />
+            <Code className="w-3.5 h-3.5 text-[#f37022]" />
             <span>Код Java</span>
           </button>
 
@@ -36,8 +36,8 @@ export const BottomTabsPane: React.FC = () => {
             }}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t transition border-b-2 ${
               bottomLayoutMode === 'tabs' && bottomTab === 'console'
-                ? 'text-white border-blue-500 bg-surface'
-                : 'text-zinc-400 border-transparent hover:text-zinc-200 hover:bg-zinc-800/40'
+                ? 'text-zinc-100 border-[#f37022] bg-surface font-semibold'
+                : 'text-zinc-400 border-transparent hover:text-zinc-200 hover:bg-surface/50'
             }`}
           >
             <Terminal className="w-3.5 h-3.5 text-amber-400" />
@@ -51,8 +51,8 @@ export const BottomTabsPane: React.FC = () => {
             }}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t transition border-b-2 ${
               bottomLayoutMode === 'tabs' && bottomTab === 'tests'
-                ? 'text-white border-blue-500 bg-surface'
-                : 'text-zinc-400 border-transparent hover:text-zinc-200 hover:bg-zinc-800/40'
+                ? 'text-zinc-100 border-[#f37022] bg-surface font-semibold'
+                : 'text-zinc-400 border-transparent hover:text-zinc-200 hover:bg-surface/50'
             }`}
           >
             <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
@@ -61,12 +61,12 @@ export const BottomTabsPane: React.FC = () => {
         </div>
 
         {/* View Mode Toggle: 3 Columns (Slide 4) vs Single Tab */}
-        <div className="flex items-center bg-zinc-900 border border-border rounded p-0.5 text-[11px]">
+        <div className="flex items-center bg-surface border border-border rounded p-0.5 text-[11px]">
           <button
             onClick={() => setBottomLayoutMode('split3')}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded transition font-medium ${
               bottomLayoutMode === 'split3'
-                ? 'bg-blue-600 text-white shadow-sm font-semibold'
+                ? 'bg-[#f37022] text-white shadow-sm font-semibold'
                 : 'text-zinc-400 hover:text-zinc-200'
             }`}
             title="Отобразить одновременно Код, Консоль и Тесты (точная копия Слайда 4 ТЗ)"
@@ -79,7 +79,7 @@ export const BottomTabsPane: React.FC = () => {
             onClick={() => setBottomLayoutMode('tabs')}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded transition font-medium ${
               bottomLayoutMode === 'tabs'
-                ? 'bg-blue-600 text-white shadow-sm font-semibold'
+                ? 'bg-[#f37022] text-white shadow-sm font-semibold'
                 : 'text-zinc-400 hover:text-zinc-200'
             }`}
             title="Компактный режим вкладок на весь экран"
