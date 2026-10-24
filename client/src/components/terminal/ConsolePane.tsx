@@ -57,20 +57,24 @@ export const ConsolePane: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-1.5">
-          <input
-            type="text"
-            placeholder="Ввод stdin..."
-            value={consoleStdin}
-            onChange={(e) => setConsoleStdin(e.target.value)}
-            className="w-28 sm:w-36 md:w-44 px-2 py-0.5 bg-surface-elevated border border-border rounded text-[11px] text-zinc-200 placeholder-zinc-500 font-mono focus:outline-none focus:border-[#f37022]"
-          />
-          <button
-            onClick={handleRun}
-            className="px-2.5 py-1 bg-[#f37022] hover:bg-[#ff6500] text-white rounded text-[11px] font-semibold transition flex items-center gap-1 shadow-sm"
-            title="Скомпилировать и запустить Main.java в песочнице с этим stdin"
-          >
-            Запустить
-          </button>
+          {isProgramRunning ? (
+            <button
+              onClick={stopProgram}
+              disabled={!programSessionId}
+              className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded text-[11px] font-semibold transition flex items-center gap-1 shadow"
+              title="Остановить программу"
+            >
+              <Square className="w-3 h-3" /> Стоп
+            </button>
+          ) : (
+            <button
+              onClick={() => runCodeInConsole()}
+              className="px-2.5 py-1 bg-[#f37022] hover:bg-[#ff6500] text-white rounded text-[11px] font-semibold transition flex items-center gap-1 shadow"
+              title="Скомпилировать и запустить Main.java; ввод — прямо здесь, когда программа его ждёт"
+            >
+              Запустить
+            </button>
+          )}
           <button
             onClick={handleClear}
             className="p-1 hover:bg-surface-elevated rounded text-zinc-500 hover:text-zinc-300 transition"

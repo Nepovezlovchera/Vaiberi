@@ -46,6 +46,8 @@ interface StudioState {
   files: FileItem[];
   activeFileId: string;
   code: string;
+  /** Исходный (до оптимизации) код импортированного файла; null — берётся исходный код пресета. */
+  baselineCode: string | null;
   activePreset: 'demo' | 'monolith';
   setPreset: (preset: 'demo' | 'monolith') => Promise<void>;
 
@@ -198,6 +200,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   files: INITIAL_FILES,
   activeFileId: 'file-main',
   code: INITIAL_JAVA_CODE,
+  baselineCode: null,
+  isProgramRunning: false,
+  programSessionId: null,
   activePreset: 'demo',
 
   isBackendOnline: false,
@@ -318,6 +323,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     set((state) => ({
       activePreset: preset,
+      baselineCode: null,
       code: newCode,
       tests: newTests,
       isOptimized: false,
@@ -713,7 +719,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   runTests: async () => {
-    const { isBackendOnline, code, tests, activePreset } = get();
+    const { isBackendOnline, code, tests, activePreset, baselineCode } = get();
     set({ isRunningTests: true, bottomTab: 'tests' });
     const now = new Date().toTimeString().split(' ')[0];
     get().addConsoleLog(`[${now}] Запуск набора тестов (${tests.length} сценариев) на Quality Gate...`);
@@ -731,7 +737,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           expectedStdout: t.expectedStdout,
         }));
 
-        const originalSource = activePreset === 'monolith' ? SAMPLE_MONOLITH_CODE : INITIAL_JAVA_CODE;
+        const originalSource = baselineCode ?? (activePreset === 'monolith' ? SAMPLE_MONOLITH_CODE : INITIAL_JAVA_CODE);
 
         await ApiClient.streamVerify(
           {
