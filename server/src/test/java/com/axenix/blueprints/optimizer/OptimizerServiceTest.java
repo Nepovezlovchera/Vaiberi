@@ -162,4 +162,80 @@ class OptimizerServiceTest {
         CodeIssue i = issue(files, "NESTED_LOOP", "Main.merge");
         assertThrows(IllegalArgumentException.class, () -> optimizer.optimize(new OptimizeRequest(files, i.id(), false)));
     }
+
+    private static final String LONG = String.join("\n",
+            "import java.util.*;",
+            "public class Main {",
+            "    static int run(int[] data, String label) {",
+            "        int total = 0;",
+            "        int count = 0;",
+            "        for (int i = 0; i < data.length; i++) {",
+            "            if (data[i] % 2 == 0) {",
+            "                total += data[i];",
+            "            } else {",
+            "                total -= 1;",
+            "            }",
+            "            count++;",
+            "        }",
+            "        System.out.println(label + \" sum=\" + total + \" n=\" + count);",
+            "        StringBuilder sb = new StringBuilder();",
+            "        for (int i = 0; i < data.length; i++) {",
+            "            sb.append(data[i]);",
+            "            if (i + 1 < data.length) {",
+            "                sb.append(',');",
+            "            }",
+            "        }",
+            "        String joined = sb.toString();",
+            "        System.out.println(joined);",
+            "        int checks = 0;",
+            "        for (int v : data) {",
+            "            if (v > 10) {",
+            "                checks++;",
+            "            }",
+            "        }",
+            "        System.out.println(\"big=\" + checks);",
+            "        int neg = 0;",
+            "        for (int v : data) {",
+            "            if (v < 3) {",
+            "                neg++;",
+            "            }",
+            "        }",
+            "        System.out.println(\"small=\" + neg);",
+            "        return total + joined.length() + checks + neg;",
+            "    }",
+            "    public static void main(String[] a) {",
+            "        System.out.println(run(new int[]{1, 2, 3, 20, 30, 7}, \"x\"));",
+            "    }",
+            "}");
+
+    /** LONG_METHOD: Extract Method — метод стал короче, код компилируется, вывод тот же (Quality Gate). */
+    @Test
+    void longMethodIsSplitByExtractMethodAndKeepsBehavior() {
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", LONG));
+        CodeIssue i = issue(files, "LONG_METHOD", "Main.run");
+        OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, i.id(), false));
+        String code = r.files().get(0).source();
+        assertEquals("TEMPLATE", r.strategy());
+        assertTrue(code.contains("runPart1("), code);
+        VerificationReport v = verify.verify(new com.axenix.blueprints.model.Dto.VerifyRequest(files, r.files(), "Main",
+                List.of(new com.axenix.blueprints.model.Dto.TestCase("t", "", null)),
+                com.axenix.blueprints.model.Dto.CompareMode.EXACT));
+        assertTrue(v.behaviorMatched(), v.testResults().toString() + v.compileOutput() + code);
+        // у исходного метода строк стало меньше
+        int before = LONG.split("\n").length;
+        assertTrue(code.split("\n").length > before - 5, code);
+    }
+
+    @Test
+    void longMethodWithEarlyReturnIsNotExtracted() {
+        String src = LONG.replace("        int count = 0;", "        int count = 0;\n        if (data.length == 0) return 0;");
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", src));
+        CodeIssue i = issue(files, "LONG_METHOD", "Main.run");
+        OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, i.id(), false));
+        // разрешено выделять другие блоки (без return), но результат обязан компилироваться и совпадать по поведению
+        VerificationReport v = verify.verify(new com.axenix.blueprints.model.Dto.VerifyRequest(files, r.files(), "Main",
+                List.of(new com.axenix.blueprints.model.Dto.TestCase("t", "", null)),
+                com.axenix.blueprints.model.Dto.CompareMode.EXACT));
+        assertTrue(v.behaviorMatched(), v.testResults().toString() + v.compileOutput() + r.files().get(0).source());
+    }
 }

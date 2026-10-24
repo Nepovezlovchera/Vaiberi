@@ -47,6 +47,14 @@ public class OptimizerServiceImpl implements OptimizerService {
                 return new OptimizeResponse(pm.render(), "TEMPLATE", done.get());
             }
         }
+        if (issue.type().equals("LONG_METHOD")) {
+            Optional<String> done = ExtractMethod.apply(pm.units.get(issue.fileName()), issue.lineStart());
+            if (done.isPresent()) {
+                pm.touch(issue.fileName());
+                return new OptimizeResponse(pm.render(), "TEMPLATE", done.get()
+                        + " Поведение подтвердите через Quality Gate.");
+            }
+        }
         if (req.allowLlm()) return viaLlm(req.files(), issue);
         throw new IllegalArgumentException("Для проблемы " + issue.type()
                 + " нет автоматического исправления по шаблону. Разрешите LLM (allowLlm=true) или исправьте вручную.");

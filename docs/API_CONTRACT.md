@@ -29,6 +29,8 @@
 `{ files }` → `{ issues: CodeIssue[], metrics: ComplexityMetric }`.
 Типы проблем: NESTED_LOOP, COSTLY_CALL_IN_LOOP, LONG_METHOD, HIGH_CYCLOMATIC, DUPLICATION (дубли методов и повторяющиеся условия).
 
+Автоисправление через `POST /api/optimize` с `issueId`: COSTLY_CALL_IN_LOOP, NESTED_LOOP (шаблоны HashSet/HashMap) и LONG_METHOD (Extract Method — выделение блока в private-метод). Остальные типы — только через LLM (`allowLlm=true`).
+
 ## POST /api/optimize, /api/decompose
 * `/optimize { files, issueId?, allowLlm }` → `{ files, strategy: TEMPLATE|LLM|CACHED, explanation }`. Без `issueId` применяются все шаблонные исправления подряд: `list.contains` в цикле → `HashSet`, вложенные foreach с `a.key.equals(b.key)` → индекс `HashMap<Object, List<B>>`.
 * `/decompose { files, plan?, extractClasses?, splitMethods? }` → `{ files, createdFiles, explanation }`:
