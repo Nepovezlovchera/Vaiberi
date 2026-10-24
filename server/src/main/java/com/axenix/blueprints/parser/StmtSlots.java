@@ -6,6 +6,8 @@ import com.github.javaparser.ast.stmt.DoStmt;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
+import com.github.javaparser.ast.stmt.LabeledStmt;
+import com.github.javaparser.ast.stmt.SwitchEntry;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.SwitchStmt;
 import com.github.javaparser.ast.stmt.TryStmt;
@@ -23,6 +25,8 @@ import java.util.List;
  * Путь: {@code <индекс>(.<слот>.<индекс>)*}, индексы с 1: {@code 3.t.1} — третий оператор метода,
  * в его ветке then первый оператор.
  * Слоты: t/e (if), b (тело цикла, try-блок), c0.. (catch), f (finally), s0.. (записи switch).
+ * Оператор с меткой ({@code outer: for ...}) прозрачен: слоты и данные берутся у помеченного оператора.
+ * Запись switch со стрелкой и блоком ({@code case 1 -> { ... }}) отдаёт операторы блока.
  */
 public final class StmtSlots {
     private StmtSlots() {}
@@ -37,12 +41,35 @@ public final class StmtSlots {
         return methodId + "/s" + path;
     }
 
-    public record Slot(String name, String edgeKind) {}
+    /** label — подпись ребра в слот (для switch: {@code case 1}, {@code default}); null — по типу ребра. */
+    public record Slot(String name, String edgeKind, String label) {
+        public Slot(String name, String edgeKind) {
+            this(name, edgeKind, null);
+        }
+    }
+
+    /** Снимает метки: {@code a: b: for (...)} → {@code for (...)}. */
+    public static Statement unwrap(Statement s) {
+        while (s instanceof LabeledStmt l) s = l.getStatement();
+        return s;
+    }
+
+    /** Текст записи switch: {@code case 1}, {@code case "A", "B"}, {@code default}. */
+    public static String caseLabel(SwitchEntry e) {
+        if (e.getLabels().isEmpty()) return "default";
+        StringBuilder sb = new StringBuilder(e.isDefault() ? "default, case " : "case ");
+        for (int i = 0; i < e.getLabels().size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(e.getLabels().get(i));
+        }
+        return sb.toString();
+    }
 
     /** Расположение оператора: родитель (или null для тела метода), слот, список и индекс в нём. */
     public record Loc(Statement parent, String slot, NodeList<Statement> list, int index, Statement stmt) {}
 
     public static List<Slot> slots(Statement s) {
+        s = unwrap(s);
         List<Slot> out = new ArrayList<>();
         if (s instanceof IfStmt i) {
             out.add(new Slot("t", "true"));
@@ -54,13 +81,14 @@ public final class StmtSlots {
             for (int k = 0; k < t.getCatchClauses().size(); k++) out.add(new Slot("c" + k, "catch"));
             if (t.getFinallyBlock().isPresent()) out.add(new Slot("f", "finally"));
         } else if (s instanceof SwitchStmt sw) {
-            for (int k = 0; k < sw.getEntries().size(); k++) out.add(new Slot("s" + k, "body"));
+            for (int k = 0; k < sw.getEntries().size(); k++) out.add(new Slot("s" + k, "body", caseLabel(sw.getEntries().get(k))));
         }
         return out;
     }
 
     /** Чтение без изменения AST (тело без фигурных скобок отдаётся как список из одного оператора). */
     public static List<Statement> read(Statement s, String slot) {
+        s = unwrap(s);
         Statement single = singleBody(s, slot);
         if (single != null) {
             return single instanceof BlockStmt b ? new ArrayList<>(b.getStatements()) : Collections.singletonList(single);
@@ -73,6 +101,7 @@ public final class StmtSlots {
      * (поведение программы не меняется).
      */
     public static NodeList<Statement> write(Statement s, String slot, boolean wrap) {
+        s = unwrap(s);
         if (s instanceof TryStmt t) {
             if (slot.equals("b")) return t.getTryBlock().getStatements();
             if (slot.equals("f")) return t.getFinallyBlock().orElseThrow(() -> bad(slot)).getStatements();
@@ -81,7 +110,21 @@ public final class StmtSlots {
         if (s instanceof SwitchStmt sw && slot.startsWith("s")) {
             int k = index(slot);
             if (k >= sw.getEntries().size()) throw bad(slot);
-            return sw.getEntries().get(k).getStatements();
+            SwitchEntry e = sw.getEntries().get(k);
+            NodeList<Statement> st = e.getStatements();
+            if (e.getType() == SwitchEntry.Type.BLOCK && st.size() == 1 && st.get(0) instanceof BlockStmt b) {
+                return b.getStatements();
+            }
+            if (wrap && (e.getType() == SwitchEntry.Type.EXPRESSION || e.getType() == SwitchEntry.Type.THROWS_STATEMENT)) {
+                // `case 1 -> a();` → `case 1 -> { a(); }`, чтобы в запись можно было добавить операторы
+                BlockStmt block = new BlockStmt();
+                for (Statement x : st) block.addStatement(x.clone());
+                e.setType(SwitchEntry.Type.BLOCK);
+                st.clear();
+                st.add(block);
+                return block.getStatements();
+            }
+            return st;
         }
         Statement body = singleBody(s, slot);
         if (body == null) throw bad(slot);

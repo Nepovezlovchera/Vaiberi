@@ -5,7 +5,6 @@ import com.axenix.blueprints.model.Dto.GraphNode;
 import com.axenix.blueprints.model.Dto.MethodGraphResponse;
 import com.axenix.blueprints.model.Dto.NodeData;
 import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
@@ -28,7 +27,8 @@ import java.util.List;
 
 /**
  * AST метода → граф. Один узел на оператор, выражения остаются текстом.
- * Неизвестные операторы (лямбды, synchronized, метки, вложенные классы) превращаются в узел raw.
+ * Неизвестные операторы (лямбды, synchronized, вложенные классы) превращаются в узел raw.
+ * Метки прозрачны: {@code outer: for ...} — узел loop с подписью, включающей метку.
  */
 public final class GraphBuilder {
     private final ProjectModel.MethodRef m;
@@ -47,18 +47,18 @@ public final class GraphBuilder {
     public record Pos(int lineStart, int lineEnd, int colStart, int colEnd) {}
 
     private MethodGraphResponse run() {
-        CallableDeclaration<?> d = m.decl();
-        String sig = d.getDeclarationAsString(true, true, true);
+        Node d = m.decl();
+        String sig = m.signature();
         Pos p = pos(d);
         String entry = StmtSlots.entryId(m.id());
         nodes.add(new GraphNode(entry, null, "method",
                 new NodeData(sig, sig, p.lineStart(), p.lineEnd(), p.colStart(), p.colEnd(), false, null, List.of(), null, null, null)));
         BlockStmt body = m.body();
-        if (body != null) walk(new ArrayList<>(body.getStatements()), entry, "next", "");
+        if (body != null) walk(new ArrayList<>(body.getStatements()), entry, "next", null, "");
         return new MethodGraphResponse(m.className(), m.id(), sig, m.file(), p.lineStart(), p.lineEnd(), nodes, edges);
     }
 
-    private void walk(List<Statement> list, String parentId, String firstKind, String prefix) {
+    private void walk(List<Statement> list, String parentId, String firstKind, String firstLabel, String prefix) {
         String prev = null;
         Statement prevStmt = null;
         for (int i = 0; i < list.size(); i++) {
@@ -66,13 +66,13 @@ public final class GraphBuilder {
             String path = prefix + (i + 1);
             String id = StmtSlots.nodeId(m.id(), path);
             nodes.add(new GraphNode(id, parentId, type(st), data(st)));
-            if (prev == null) edge(parentId, id, firstKind, st, parentIsLoop(parentId));
-            else edge(prev, id, siblingKind(prevStmt), st, false);
+            if (prev == null) edge(parentId, id, firstKind, firstLabel, parentIsLoop(parentId));
+            else edge(prev, id, siblingKind(prevStmt), null, false);
             prev = id;
             prevStmt = st;
             for (StmtSlots.Slot slot : StmtSlots.slots(st)) {
                 List<Statement> body = StmtSlots.read(st, slot.name());
-                walk(body, id, slot.edgeKind(), path + "." + slot.name() + ".");
+                walk(body, id, slot.edgeKind(), slot.label(), path + "." + slot.name() + ".");
                 if (type(st).equals("loop") && slot.name().equals("b") && !body.isEmpty()) {
                     // замыкающее ребро: конец тела → заголовок цикла (следующая итерация)
                     String last = StmtSlots.nodeId(m.id(), path + ".b." + body.size());
@@ -84,7 +84,7 @@ public final class GraphBuilder {
 
     /** if без else: переход к следующему оператору — это ветка «Нет»; в остальных случаях обычный переход. */
     private static String siblingKind(Statement prevStmt) {
-        return prevStmt instanceof IfStmt i && i.getElseStmt().isEmpty() ? "false" : "next";
+        return StmtSlots.unwrap(prevStmt) instanceof IfStmt i && i.getElseStmt().isEmpty() ? "false" : "next";
     }
 
     private boolean parentIsLoop(String parentId) {
@@ -92,8 +92,8 @@ public final class GraphBuilder {
         return false;
     }
 
-    private void edge(String from, String to, String kind, Statement target, boolean fromLoop) {
-        String label = switch (kind) {
+    private void edge(String from, String to, String kind, String explicitLabel, boolean fromLoop) {
+        String label = explicitLabel != null ? explicitLabel : switch (kind) {
             case "true" -> "Да";
             case "false" -> "Нет";
             case "body" -> fromLoop ? "Тело цикла" : "body";
@@ -108,12 +108,12 @@ public final class GraphBuilder {
         return id.substring(id.lastIndexOf('/') + 1);
     }
 
-    private static NodeData data(Statement s) {
-        Pos p = pos(s);
-        String type = type(s);
-        String header = StmtSlots.slots(s).isEmpty() ? null : label(s);
+    private static NodeData data(Statement original) {
+        Pos p = pos(original);
+        String header = StmtSlots.slots(original).isEmpty() ? null : label(original);
         String loopType = null;
         String condition = null;
+        Statement s = StmtSlots.unwrap(original);
         if (s instanceof ForStmt f) {
             loopType = "for";
             condition = f.getCompare().map(Node::toString).orElse(null);
@@ -131,11 +131,12 @@ public final class GraphBuilder {
         } else if (s instanceof SwitchStmt sw) {
             condition = sw.getSelector().toString();
         }
-        return new NodeData(label(s), s.toString(), p.lineStart(), p.lineEnd(), p.colStart(), p.colEnd(),
+        return new NodeData(label(original), original.toString(), p.lineStart(), p.lineEnd(), p.colStart(), p.colEnd(),
                 false, null, List.of(), loopType, condition, header);
     }
 
     public static String type(Statement s) {
+        s = StmtSlots.unwrap(s);
         if (s instanceof ExpressionStmt es) {
             if (es.getExpression() instanceof VariableDeclarationExpr) return "var";
             if (es.getExpression() instanceof MethodCallExpr) return "call";

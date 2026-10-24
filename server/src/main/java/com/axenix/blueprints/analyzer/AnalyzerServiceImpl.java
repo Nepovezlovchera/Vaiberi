@@ -14,7 +14,8 @@ import com.axenix.blueprints.parser.ProjectModel;
 import com.axenix.blueprints.parser.ProjectModel.MethodRef;
 import com.axenix.blueprints.parser.StmtSlots;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.SimpleName;
@@ -202,15 +203,16 @@ public class AnalyzerServiceImpl implements AnalyzerService {
 
     /** Тело метода с переименованными локальными переменными и параметрами (v1, v2, ...). */
     static String normalizedBody(MethodRef m) {
-        CallableDeclaration<?> copy = m.decl().clone();
+        Node copy = m.decl().clone();
         Map<String, String> names = new LinkedHashMap<>();
-        for (Parameter p : copy.getParameters()) names.putIfAbsent(p.getNameAsString(), "v" + (names.size() + 1));
+        // параметры берём у оригинала: у компактного конструктора это компоненты record (вне клона)
+        for (Parameter p : m.parameters()) names.putIfAbsent(p.getNameAsString(), "v" + (names.size() + 1));
         for (VariableDeclarator v : copy.findAll(VariableDeclarator.class)) names.putIfAbsent(v.getNameAsString(), "v" + (names.size() + 1));
         for (SimpleName sn : copy.findAll(SimpleName.class)) {
             String repl = names.get(sn.getIdentifier());
             if (repl != null) sn.setIdentifier(repl);
         }
-        copy.setName("m");
+        ((NodeWithSimpleName<?>) copy).setName("m");
         return copy.toString().replaceAll("\\s+", " ");
     }
 }
