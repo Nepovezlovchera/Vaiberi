@@ -38,8 +38,12 @@ public class ProcessRunner {
         cmd.add("-XX:+UseSerialGC");
         cmd.add("-Djava.awt.headless=true");
         cmd.add("-Dfile.encoding=UTF-8");
+        cmd.add("-Dstdin.encoding=UTF-8");
         cmd.add("-Dstdout.encoding=UTF-8");
         cmd.add("-Dstderr.encoding=UTF-8");
+        cmd.add("-Dsun.stdout.encoding=UTF-8");
+        cmd.add("-Dsun.stderr.encoding=UTF-8");
+        cmd.add("-Dsun.jnu.encoding=UTF-8");
         cmd.add("-cp");
         cmd.add(classesDir.toString());
         cmd.add(mainClass);
@@ -106,7 +110,7 @@ public class ProcessRunner {
 
         String text() {
             synchronized (buf) {
-                return buf.toString(StandardCharsets.UTF_8);
+                return buf.toString(StandardCharsets.UTF_8).replace("\uFEFF", "");
             }
         }
     }

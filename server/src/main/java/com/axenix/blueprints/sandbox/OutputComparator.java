@@ -21,7 +21,7 @@ public final class OutputComparator {
     private static final Pattern IDENTITY_HASH = Pattern.compile("@[0-9a-f]{5,}");
 
     public static String normalize(String text, CompareMode mode) {
-        String s = text == null ? "" : text.replace("\r\n", "\n").replace('\r', '\n');
+        String s = text == null ? "" : text.replace("\uFEFF", "").replace("\r\n", "\n").replace('\r', '\n');
         if (mode == CompareMode.MASKED) {
             s = DURATION.matcher(s).replaceAll("<T>");
             s = CLOCK.matcher(s).replaceAll("<CLOCK>");

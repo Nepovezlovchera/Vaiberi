@@ -127,4 +127,33 @@ class VerifyServiceTest {
         assertTrue(json.contains("testResults"));
         java.nio.file.Files.deleteIfExists(f);
     }
+
+    @Test
+    void implicitCharsetCyrillicMatchesExactly() {
+        // Программа без явного StandardCharsets.UTF_8 в Scanner
+        String orig = "import java.util.Scanner;\n" +
+                "public class Main {\n" +
+                "    public static void main(String[] args) {\n" +
+                "        Scanner scanner = new Scanner(System.in);\n" +
+                "        if (scanner.hasNextLine()) {\n" +
+                "            String name = scanner.nextLine();\n" +
+                "            System.out.printf(\"Привет, %s!%n\", name);\n" +
+                "        }\n" +
+                "    }\n" +
+                "}";
+        String mod = "import java.util.Scanner;\n" +
+                "public class Main {\n" +
+                "    public static void main(String[] args) {\n" +
+                "        Scanner scanner = new Scanner(System.in);\n" +
+                "        if (scanner.hasNextLine()) {\n" +
+                "            String name = scanner.nextLine();\n" +
+                "            System.out.println(\"Привет, \" + name + \"!\");\n" +
+                "        }\n" +
+                "    }\n" +
+                "}";
+        List<TestCase> t = List.of(new TestCase("cyrillicTest", "Иван Тестович\n", null));
+        VerificationReport r = verify.verify(new VerifyRequest(one(orig), one(mod), null, t, CompareMode.EXACT));
+        assertTrue(r.behaviorMatched(), r.testResults().toString());
+        assertEquals(1, r.passed());
+    }
 }
