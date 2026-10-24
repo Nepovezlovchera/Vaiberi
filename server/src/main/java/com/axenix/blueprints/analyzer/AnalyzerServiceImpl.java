@@ -19,6 +19,8 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.SimpleName;
 
+import com.github.javaparser.ast.stmt.IfStmt;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,6 +37,7 @@ public class AnalyzerServiceImpl implements AnalyzerService {
     public static final int HIGH_CYCLOMATIC = 10;
     public static final int VERY_HIGH_CYCLOMATIC = 20;
     private static final int MIN_DUPLICATE_LINES = 4;
+    private static final int MIN_DUP_CONDITION_LENGTH = 14;
 
     private final LoopComplexityAnalyzer loops = new LoopComplexityAnalyzer();
 
@@ -65,8 +68,7 @@ public class AnalyzerServiceImpl implements AnalyzerService {
                         ? "Индексировать данные по ключу (HashMap/HashSet) вместо повторного прохода по коллекции."
                         : "Заменить List на HashSet/HashMap для поиска: проверка станет O(1) вместо O(n).";
                 String after = LoopComplexityAnalyzer.complexityLabel(Math.max(1, f.degree() - 1));
-                String suggested = f.type() == LoopComplexityAnalyzer.Type.COSTLY_CALL_IN_LOOP
-                        ? suggestedCode(pm, m, f.startLine()) : null;
+                String suggested = suggestedCode(pm, m, f.startLine());
                 issues.add(issue(usedIds, f.type().name(), f.degree() >= 3 ? "HIGH" : "MEDIUM", m, nodeId,
                         f.startLine(), f.endLine(), title, f.message() + " (метод " + m.id() + ")",
                         "Рост времени выполнения при росте входных данных: " + f.complexity() + ".", rec,
@@ -111,6 +113,28 @@ public class AnalyzerServiceImpl implements AnalyzerService {
             }
         }
 
+        // 3b. Повторяющиеся условия (например, двойная проверка orders == null || orders.isEmpty())
+        for (Map.Entry<String, CompilationUnit> e : pm.units.entrySet()) {
+            Map<String, IfStmt> seen = new HashMap<>();
+            for (IfStmt st : e.getValue().findAll(IfStmt.class)) {
+                String cond = st.getCondition().toString().replaceAll("\\s+", "");
+                if (cond.length() < MIN_DUP_CONDITION_LENGTH) continue;
+                IfStmt first = seen.putIfAbsent(cond, st);
+                if (first == null) continue;
+                int from = st.getCondition().getRange().map(r -> r.begin.line).orElse(1);
+                int to = st.getCondition().getRange().map(r -> r.end.line).orElse(from);
+                MethodRef m = innermostMethod(pm, e.getKey(), from);
+                if (m == null) continue;
+                int firstLine = first.getRange().map(r -> r.begin.line).orElse(0);
+                issues.add(issue(usedIds, "DUPLICATION", "LOW", m, nodeFor(graphs, m, from, to), from, to,
+                        "Повторяющееся условие",
+                        "Условие «" + st.getCondition() + "» уже проверялось выше (строка " + firstLine + ").",
+                        "Правка условия придётся вносить в нескольких местах; лишние проверки.",
+                        "Вынести условие в метод или булеву переменную и использовать её повторно.",
+                        null, null, null));
+            }
+        }
+
         int maxCc = cyclomatic.values().stream().mapToInt(Integer::intValue).max().orElse(1);
         String current = worstDegree == 0 ? "≤ O(n)" : LoopComplexityAnalyzer.complexityLabel(worstDegree);
         String predicted = worstDegree == 0 ? "≤ O(n)" : LoopComplexityAnalyzer.complexityLabel(Math.max(1, worstDegree - 1));
@@ -138,7 +162,7 @@ public class AnalyzerServiceImpl implements AnalyzerService {
     private static String suggestedCode(ProjectModel pm, MethodRef m, int line) {
         try {
             ProjectModel fresh = ProjectModel.parse(List.of(new ProjectFile(m.file(), pm.sources.get(m.file()))));
-            if (TemplateFixes.containsInLoop(fresh.units.get(m.file()), line).isEmpty()) return null;
+            if (TemplateFixes.apply(fresh.units.get(m.file()), line).isEmpty()) return null;
             return fresh.method(m.id()).decl().toString();
         } catch (RuntimeException e) {
             return null;

@@ -34,13 +34,14 @@ public class OptimizerServiceImpl implements OptimizerService {
 
     @Override
     public OptimizeResponse optimize(OptimizeRequest req) {
+        if (req.issueId() == null || req.issueId().isBlank()) return optimizeAll(req.files());
         ProjectModel pm = ProjectModel.parse(req.files());
         AnalysisReport analysis = analyzer.analyze(pm);
         CodeIssue issue = analysis.issues().stream().filter(i -> i.id().equals(req.issueId())).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Проблема не найдена: " + req.issueId()));
 
-        if (issue.type().equals("COSTLY_CALL_IN_LOOP")) {
-            Optional<String> done = TemplateFixes.containsInLoop(pm.units.get(issue.fileName()), issue.lineStart());
+        if (issue.type().equals("COSTLY_CALL_IN_LOOP") || issue.type().equals("NESTED_LOOP")) {
+            Optional<String> done = TemplateFixes.apply(pm.units.get(issue.fileName()), issue.lineStart());
             if (done.isPresent()) {
                 pm.touch(issue.fileName());
                 return new OptimizeResponse(pm.render(), "TEMPLATE", done.get());
@@ -49,6 +50,33 @@ public class OptimizerServiceImpl implements OptimizerService {
         if (req.allowLlm()) return viaLlm(req.files(), issue);
         throw new IllegalArgumentException("Для проблемы " + issue.type()
                 + " нет автоматического исправления по шаблону. Разрешите LLM (allowLlm=true) или исправьте вручную.");
+    }
+
+    /** Кнопка «Оптимизировать» без выбранной проблемы: применяет все безопасные шаблонные исправления подряд. */
+    private OptimizeResponse optimizeAll(List<ProjectFile> files) {
+        List<ProjectFile> current = files;
+        List<String> applied = new ArrayList<>();
+        for (int round = 0; round < 20; round++) {
+            ProjectModel pm = ProjectModel.parse(current);
+            AnalysisReport analysis = analyzer.analyze(pm);
+            boolean fixed = false;
+            for (CodeIssue issue : analysis.issues()) {
+                if (!issue.type().equals("COSTLY_CALL_IN_LOOP") && !issue.type().equals("NESTED_LOOP")) continue;
+                Optional<String> done = TemplateFixes.apply(pm.units.get(issue.fileName()), issue.lineStart());
+                if (done.isPresent()) {
+                    pm.touch(issue.fileName());
+                    current = pm.render();
+                    applied.add(done.get());
+                    fixed = true;
+                    break;
+                }
+            }
+            if (!fixed) break;
+        }
+        String text = applied.isEmpty()
+                ? "Автоматически исправимых проблем (шаблоны) не найдено — код оставлен без изменений."
+                : "Применено исправлений: " + applied.size() + ". " + String.join(" | ", applied);
+        return new OptimizeResponse(current, "TEMPLATE", text);
     }
 
     private OptimizeResponse viaLlm(List<ProjectFile> files, CodeIssue issue) {

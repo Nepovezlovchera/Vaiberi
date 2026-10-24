@@ -60,18 +60,31 @@ public final class GraphBuilder {
 
     private void walk(List<Statement> list, String parentId, String firstKind, String prefix) {
         String prev = null;
+        Statement prevStmt = null;
         for (int i = 0; i < list.size(); i++) {
             Statement st = list.get(i);
             String path = prefix + (i + 1);
             String id = StmtSlots.nodeId(m.id(), path);
             nodes.add(new GraphNode(id, parentId, type(st), data(st)));
             if (prev == null) edge(parentId, id, firstKind, st, parentIsLoop(parentId));
-            else edge(prev, id, "next", st, false);
+            else edge(prev, id, siblingKind(prevStmt), st, false);
             prev = id;
+            prevStmt = st;
             for (StmtSlots.Slot slot : StmtSlots.slots(st)) {
-                walk(StmtSlots.read(st, slot.name()), id, slot.edgeKind(), path + "." + slot.name() + ".");
+                List<Statement> body = StmtSlots.read(st, slot.name());
+                walk(body, id, slot.edgeKind(), path + "." + slot.name() + ".");
+                if (type(st).equals("loop") && slot.name().equals("b") && !body.isEmpty()) {
+                    // замыкающее ребро: конец тела → заголовок цикла (следующая итерация)
+                    String last = StmtSlots.nodeId(m.id(), path + ".b." + body.size());
+                    edges.add(new GraphEdge("e_" + shortId(last) + "_" + shortId(id) + "_back", last, id, "back", "Повтор"));
+                }
             }
         }
+    }
+
+    /** if без else: переход к следующему оператору — это ветка «Нет»; в остальных случаях обычный переход. */
+    private static String siblingKind(Statement prevStmt) {
+        return prevStmt instanceof IfStmt i && i.getElseStmt().isEmpty() ? "false" : "next";
     }
 
     private boolean parentIsLoop(String parentId) {

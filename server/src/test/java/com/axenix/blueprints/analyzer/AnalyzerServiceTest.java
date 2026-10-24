@@ -77,4 +77,23 @@ class AnalyzerServiceTest {
                 "class A { int sum(int[] a) { int s = 0; for (int x : a) s += x; return s; } }")));
         assertTrue(r.issues().isEmpty());
     }
+
+    @Test
+    void detectsRepeatedCondition() {
+        String src = "import java.util.*;\nclass A {\n"
+                + " int f(List<String> orders) {\n  if (orders == null || orders.isEmpty()) {\n   return 0;\n  }\n  return orders.size();\n }\n"
+                + " int g(List<String> orders) {\n  if (orders == null || orders.isEmpty()) {\n   return -1;\n  }\n  return 1;\n }\n}";
+        AnalysisReport r = analyzer.analyze(List.of(new ProjectFile("A.java", src)));
+        CodeIssue dup = r.issues().stream().filter(i -> i.type().equals("DUPLICATION") && i.title().equals("Повторяющееся условие"))
+                .findFirst().orElseThrow(() -> new AssertionError(r.issues().toString()));
+        assertEquals("A.g/s1", dup.nodeId());
+        assertEquals(10, dup.lineStart());
+    }
+
+    @Test
+    void shortRepeatedConditionsAreIgnored() {
+        String src = "class A { int f(int x) { if (x > 0) return 1; return 0; } int g(int x) { if (x > 0) return 2; return 3; } }";
+        assertTrue(analyzer.analyze(List.of(new ProjectFile("A.java", src))).issues().stream()
+                .noneMatch(i -> i.title().equals("Повторяющееся условие")));
+    }
 }

@@ -95,4 +95,71 @@ class OptimizerServiceTest {
     void unknownIssueIsBadRequest() {
         assertThrows(IllegalArgumentException.class, () -> optimizer.optimize(new OptimizeRequest(Demo.project(), "NOPE", false)));
     }
+
+    /** Клиент вызывает /api/optimize без issueId: применяются все шаблонные исправления, поведение сохраняется. */
+    @Test
+    void optimizeWithoutIssueIdFixesEverythingFixable() {
+        List<ProjectFile> files = Demo.project();
+        OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, null, false));
+        assertEquals("TEMPLATE", r.strategy());
+        assertTrue(r.files().get(0).source().contains("HashSet"));
+        assertTrue(analyzer.analyze(r.files()).issues().stream()
+                .noneMatch(x -> x.type().equals("COSTLY_CALL_IN_LOOP") && x.nodeId().startsWith("Main.uniqueCustomers")));
+        assertTrue(verify.verify(Demo.verify(r.files())).behaviorMatched());
+    }
+
+    @Test
+    void optimizeWithoutIssueIdOnCleanCodeIsNoop() {
+        List<ProjectFile> files = List.of(new ProjectFile("A.java", "class A { int f() { return 1; } }"));
+        OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, null, false));
+        assertEquals(files, r.files());
+    }
+
+    private static final String NESTED = String.join("\n",
+            "import java.util.*;",
+            "public class Main {",
+            "    static class Item { final String id; final int v; Item(String id, int v) { this.id = id; this.v = v; } }",
+            "    static int merge(List<Item> xs, List<Item> ys) {",
+            "        int total = 0;",
+            "        for (Item a : xs) {",
+            "            for (Item b : ys) {",
+            "                if (a.id.equals(b.id)) {",
+            "                    total += a.v * b.v;",
+            "                    System.out.println(a.id + \":\" + a.v + \"*\" + b.v);",
+            "                }",
+            "            }",
+            "        }",
+            "        return total;",
+            "    }",
+            "    public static void main(String[] args) {",
+            "        List<Item> xs = List.of(new Item(\"a\", 1), new Item(\"b\", 2), new Item(\"a\", 3), new Item(\"z\", 9));",
+            "        List<Item> ys = List.of(new Item(\"a\", 10), new Item(\"c\", 5), new Item(\"a\", 20), new Item(\"b\", 7));",
+            "        System.out.println(merge(xs, ys));",
+            "    }",
+            "}", "");
+
+    /** Вложенный foreach с equals по ключу → HashMap<Object, List<B>>; порядок и повторы совпадений сохраняются. */
+    @Test
+    void nestedForEachBecomesHashMapIndexAndKeepsBehavior() {
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", NESTED));
+        CodeIssue i = issue(files, "NESTED_LOOP", "Main.merge");
+        assertTrue(i.suggestedCode() != null && i.suggestedCode().contains("computeIfAbsent"), String.valueOf(i.suggestedCode()));
+        OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, i.id(), false));
+        String code = r.files().get(0).source();
+        assertEquals("TEMPLATE", r.strategy());
+        assertTrue(code.contains("computeIfAbsent") && code.contains("HashMap"), code);
+        assertTrue(analyzer.analyze(r.files()).issues().stream().noneMatch(x -> x.type().equals("NESTED_LOOP")), code);
+        VerificationReport v = verify.verify(new com.axenix.blueprints.model.Dto.VerifyRequest(files, r.files(), "Main",
+                List.of(new com.axenix.blueprints.model.Dto.TestCase("t", "", null)),
+                com.axenix.blueprints.model.Dto.CompareMode.EXACT));
+        assertTrue(v.behaviorMatched(), v.testResults().toString() + v.compileOutput() + code);
+    }
+
+    @Test
+    void nestedLoopIsNotFixedWhenInnerCollectionIsMutated() {
+        String src = NESTED.replace("total += a.v * b.v;", "total += a.v * b.v; ys.remove(b);");
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", src));
+        CodeIssue i = issue(files, "NESTED_LOOP", "Main.merge");
+        assertThrows(IllegalArgumentException.class, () -> optimizer.optimize(new OptimizeRequest(files, i.id(), false)));
+    }
 }

@@ -95,4 +95,18 @@ class ParseServiceTest {
                 () -> service.graph(List.of(new ProjectFile("A.java", "class A {\n void m( {\n}\n}")), null));
         assertNotNull(e.line());
     }
+
+    @Test
+    void loopHasBackEdgeAndIfWithoutElseHasFalseEdge() {
+        String src = "class A { int f(int[] a) { int s = 0; for (int x : a) { if (x > 0) { s += x; } s++; } return s; } }";
+        MethodGraphResponse g = service.graph(List.of(new ProjectFile("A.java", src)), null).methods().get(0);
+        // конец тела цикла (s++) возвращается в заголовок цикла
+        assertTrue(g.edges().stream().anyMatch(e -> e.type().equals("back")
+                && e.source().endsWith("/s2.b.2") && e.target().endsWith("/s2")), g.edges().toString());
+        // if без else: переход к следующему оператору — ветка «Нет»
+        assertTrue(g.edges().stream().anyMatch(e -> e.type().equals("false") && e.label().equals("Нет")
+                && e.source().endsWith("/s2.b.1") && e.target().endsWith("/s2.b.2")), g.edges().toString());
+        // идентификаторы рёбер уникальны
+        assertEquals(g.edges().size(), g.edges().stream().map(GraphEdge::id).distinct().count());
+    }
 }

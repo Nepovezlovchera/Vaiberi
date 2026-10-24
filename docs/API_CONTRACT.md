@@ -17,7 +17,7 @@
 Запрос `{ files, methodId? }` → `{ methods: MethodGraphResponse[], metrics: ComplexityMetric }`.
 `GraphNode { id, parentId, type, data{label, code, lineStart, lineEnd, hasIssue, issueId, loopType, condition} }`,
 `type`: method | var | call | op | return | condition | loop | try | switch | break | continue | throw | raw.
-`GraphEdge { id, source, target, type, label }` (метки «Да», «Нет», «Тело цикла»).
+`GraphEdge { id, source, target, type, label }`: `next`, `true`/`false` (метки «Да»/«Нет»; ветка «Нет» есть и у `if` без `else`), `body` («Тело цикла»), `back` («Повтор» — замыкающее ребро от конца тела цикла к его заголовку), `catch`, `finally`.
 
 ## POST /api/graph/mutate
 `{ files, action: UPDATE_CODE|DELETE_NODE|INSERT_NODE|REORDER, nodeId, parentId?, index?, payload?, template?, validate? }`
@@ -27,10 +27,10 @@
 
 ## POST /api/analysis
 `{ files }` → `{ issues: CodeIssue[], metrics: ComplexityMetric }`.
-Типы проблем: NESTED_LOOP, COSTLY_CALL_IN_LOOP, LONG_METHOD, HIGH_CYCLOMATIC, DUPLICATION.
+Типы проблем: NESTED_LOOP, COSTLY_CALL_IN_LOOP, LONG_METHOD, HIGH_CYCLOMATIC, DUPLICATION (дубли методов и повторяющиеся условия).
 
 ## POST /api/optimize, /api/decompose
-* `/optimize { files, issueId, allowLlm }` → `{ files, strategy: TEMPLATE|LLM|CACHED, explanation }`.
+* `/optimize { files, issueId?, allowLlm }` → `{ files, strategy: TEMPLATE|LLM|CACHED, explanation }`. Без `issueId` применяются все шаблонные исправления подряд: `list.contains` в цикле → `HashSet`, вложенные foreach с `a.key.equals(b.key)` → индекс `HashMap<Object, List<B>>`.
 * `/decompose { files, plan?, extractClasses?, splitMethods? }` → `{ files, createdFiles, explanation }`:
   вложенные классы выносятся в свои файлы, статические методы раскладываются по `Parser` / `Analyzer` / `Optimizer`.
 

@@ -123,8 +123,11 @@ public final class ProjectModel {
             String text;
             try {
                 text = LexicalPreservingPrinter.print(e.getValue());
+                // LexicalPreservingPrinter иногда портит редкие конструкции (напр. switch-выражения со стрелкой):
+                // результат обязан заново разбираться, иначе мягкий откат к обычному pretty printer
+                if (!newParser().parse(text).isSuccessful()) text = e.getValue().toString();
             } catch (RuntimeException ex) {
-                text = e.getValue().toString(); // запасной путь: обычный pretty printer
+                text = e.getValue().toString();
             }
             out.add(new ProjectFile(path, text));
         }
