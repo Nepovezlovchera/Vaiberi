@@ -38,10 +38,10 @@ export const ConsolePane: React.FC = () => {
 
   return (
     <div className="w-full h-full bg-surface font-mono text-xs flex flex-col p-3 overflow-hidden select-text text-zinc-200">
-      <div className="flex items-center justify-between pb-2 border-b border-border text-zinc-400 mb-2 gap-2">
-        <div className="flex items-center gap-2">
-          <Terminal className="w-3.5 h-3.5 text-[#f37022]" />
-          <span className="font-semibold text-zinc-200">Терминал JVM</span>
+      <div className="flex flex-wrap items-center justify-between pb-2 border-b border-border text-zinc-400 mb-2 gap-2 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Terminal className="w-3.5 h-3.5 text-[#f37022] shrink-0" />
+          <span className="font-semibold text-zinc-200 whitespace-nowrap">Терминал JVM</span>
           <span
             className="px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-400 bg-surface-elevated border border-border"
             title="Защита от Client-side DoS: Ring Buffer (максимум 1000 строк)"
@@ -114,7 +114,7 @@ export const ConsolePane: React.FC = () => {
       </div>
 
       {isProgramRunning && (
-        <div className="mt-2 flex items-center gap-2 border-t border-border/60 pt-2">
+        <div className="mt-2 flex items-center gap-2 border-t border-border/60 pt-2 shrink-0">
           <span className="text-emerald-400">›</span>
           <input
             ref={inputRef}
@@ -131,7 +131,7 @@ export const ConsolePane: React.FC = () => {
               }
             }}
             placeholder={programSessionId ? 'Введите текст и нажмите Enter (Ctrl+D — конец ввода)' : 'Компиляция…'}
-            className="flex-1 px-2 py-1 bg-zinc-900 border border-border rounded text-[12px] text-zinc-100 placeholder-zinc-500 font-mono focus:outline-none focus:border-emerald-500 disabled:opacity-60"
+            className="flex-1 min-w-0 px-2 py-1 bg-zinc-900 border border-border rounded text-[12px] text-zinc-100 placeholder-zinc-500 font-mono focus:outline-none focus:border-emerald-500 disabled:opacity-60"
             autoComplete="off"
             spellCheck={false}
           />

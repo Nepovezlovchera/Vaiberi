@@ -129,11 +129,13 @@ export const TestsPane: React.FC = () => {
       />
 
       {/* Quality Gate Header Banner */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-border mb-2.5">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="flex items-center gap-1.5">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span className="font-semibold text-zinc-200">Quality Gate: Сохранение поведения</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-border mb-2.5 shrink-0 min-w-0">
+        <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold text-zinc-200 truncate" title="Quality Gate: Сохранение поведения">
+              Quality Gate: Сохранение поведения
+            </span>
           </div>
 
           <span className="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 font-bold text-[11px]">
@@ -148,10 +150,10 @@ export const TestsPane: React.FC = () => {
         </div>
 
         {/* Toolbar Buttons */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 px-2.5 py-1 bg-surface-elevated hover:bg-surface text-zinc-300 border border-border rounded text-[11px] font-medium transition"
+            className="flex items-center gap-1 px-2.5 py-1 bg-surface-elevated hover:bg-surface text-zinc-300 border border-border rounded text-[11px] font-medium transition whitespace-nowrap"
             title="Загрузить один или несколько файлов .in"
           >
             <UploadCloud className="w-3.5 h-3.5 text-[#f37022]" />
@@ -160,7 +162,7 @@ export const TestsPane: React.FC = () => {
 
           <button
             onClick={() => setShowAddForm((v) => !v)}
-            className="flex items-center gap-1 px-2.5 py-1 bg-surface-elevated hover:bg-surface text-zinc-300 border border-border rounded text-[11px] font-medium transition"
+            className="flex items-center gap-1 px-2.5 py-1 bg-surface-elevated hover:bg-surface text-zinc-300 border border-border rounded text-[11px] font-medium transition whitespace-nowrap"
             title="Добавить тестовый сценарий со своим stdin"
           >
             <Plus className="w-3.5 h-3.5 text-[#f37022]" />
@@ -178,7 +180,7 @@ export const TestsPane: React.FC = () => {
           <button
             onClick={runTests}
             disabled={isRunningTests}
-            className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium text-[11px] transition disabled:opacity-50 shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium text-[11px] transition disabled:opacity-50 shadow-sm whitespace-nowrap"
           >
             <Play className={`w-3.5 h-3.5 ${isRunningTests ? 'animate-spin text-white' : ''}`} />
             <span>{isRunningTests ? 'Прогон...' : 'Запустить тесты'}</span>
@@ -192,7 +194,7 @@ export const TestsPane: React.FC = () => {
           onSubmit={handleCreateTest}
           className="mb-3 p-3 bg-surface-elevated border border-[#f37022]/40 rounded-lg space-y-2.5 shadow-lg animate-in fade-in"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-1">
             <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
               <Terminal className="w-3.5 h-3.5 text-[#f37022]" />
               <span>Новый тестовый сценарий</span>
@@ -254,8 +256,8 @@ export const TestsPane: React.FC = () => {
       </div>
 
       {/* Tests Table */}
-      <div className="flex-1 overflow-y-auto pr-1">
-        <table className="w-full text-left border-collapse">
+      <div className="flex-1 min-h-0 overflow-auto pr-1">
+        <table className="w-full min-w-[460px] text-left border-collapse">
           <thead>
             <tr className="border-b border-border text-[11px] font-medium text-zinc-400 sticky top-0 bg-surface z-10">
               <th className="py-1 px-2 w-8"></th>
