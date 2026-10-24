@@ -48,13 +48,15 @@ interface StudioState {
   files: FileItem[];
   activeFileId: string;
   code: string;
-  /** Исходный (до оптимизации) код импортированного файла; null — берётся исходный код. */
+  /** Исходный (до оптимизации) код импортированного файла; null — берётся исходный код пресета. */
   baselineCode: string | null;
   baselineFiles: ProjectFileDto[] | null;
   verificationReport: VerificationReport | null;
   getProjectFiles: () => ProjectFileDto[];
   applyProjectFiles: (files: ProjectFileDto[]) => void;
   acceptReport: (report: VerificationReport) => void;
+  activePreset: 'demo' | 'monolith';
+  setPreset: (preset: 'demo' | 'monolith') => Promise<void>;
 
   // Сеть / Бэкенд
   isBackendOnline: boolean;
@@ -134,7 +136,13 @@ interface StudioState {
   runOptimization: () => Promise<void>;
   optimizeSingleIssue: (issueId: string) => Promise<void>;
   runTests: () => Promise<void>;
-  runCodeInConsole: (stdin?: string) => Promise<void>;
+  runCodeInConsole: () => Promise<void>;
+  /** Интерактивная программа в терминале: идёт ли запуск и id сессии (после старта процесса) */
+  isProgramRunning: boolean;
+  programSessionId: string | null;
+  sendConsoleInput: (text: string) => void;
+  sendConsoleEof: () => void;
+  stopProgram: () => void;
   addTestCase: (name: string, stdin: string, expectedStdout?: string) => void;
   updateTestCase: (id: string, updates: Partial<TestCaseResult>) => void;
   removeTestCase: (id: string) => void;
@@ -143,6 +151,43 @@ interface StudioState {
   importProject: (files: { name: string; content: string }[]) => Promise<void>;
   resetDefaultTests: () => void;
   addConsoleLog: (msg: string) => void;
+}
+
+// ---- интерактивная консоль: вывод приходит фрагментами, строка может быть «открыта» (приглашение без \n) ----
+let programRunToken = 0;
+let openProgramLine: 'out' | 'err' | null = null;
+
+function appendProgramText(kind: 'out' | 'err', text: string) {
+  const prefix = kind === 'out' ? '[STDOUT] ' : '[STDERR] ';
+  const segments = text.split('\n');
+  useStudioStore.setState((state) => {
+    const logs = [...state.consoleLogs];
+    segments.forEach((seg, i) => {
+      if (i > 0) openProgramLine = null; // перевод строки закрыл предыдущую
+      if (seg === '' && i === segments.length - 1) return;
+      if (openProgramLine === kind && logs.length > 0) {
+        logs[logs.length - 1] += seg;
+      } else {
+        logs.push(prefix + seg);
+        openProgramLine = kind;
+      }
+    });
+    return { consoleLogs: logs.slice(-MAX_LOG_ENTRIES) };
+  });
+}
+
+/** Эхо введённого текста: дописываем к строке-приглашению (как в терминале) или отдельной строкой */
+function echoProgramInput(text: string) {
+  useStudioStore.setState((state) => {
+    const logs = [...state.consoleLogs];
+    if (openProgramLine === 'out' && logs.length > 0) {
+      logs[logs.length - 1] += text;
+    } else {
+      logs.push(`[STDIN] ${text}`);
+    }
+    openProgramLine = null;
+    return { consoleLogs: logs.slice(-MAX_LOG_ENTRIES) };
+  });
 }
 
 export const useStudioStore = create<StudioState>((set, get) => ({
@@ -178,6 +223,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     get().addConsoleLog(`[${timeNow()}] Quality Gate ${passed ? 'PASSED' : 'FAILED'}: ${report.passed ?? 0} из ${report.total ?? report.testResults.length}.`);
     if (report.compileOutput) get().addConsoleLog(`[ERROR] ${report.compileOutput}`);
   },
+  isProgramRunning: false,
+  programSessionId: null,
+  activePreset: 'monolith',
 
   isBackendOnline: false,
 
@@ -287,6 +335,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set({ syncStatus: 'error', syncError: message });
       get().addConsoleLog(`[${timeNow()}] [ERROR] Разбор кода: ${message}`);
     }
+  },
+
+  setPreset: async (preset: 'demo' | 'monolith') => {
+    const isMono = preset === 'monolith';
+    await get().importProject([{ name: 'Main.java', content: isMono ? SAMPLE_MONOLITH_CODE : INITIAL_JAVA_CODE }]);
+    set({ activePreset: preset, tests: (isMono ? SAMPLE_MONOLITH_TESTS : INITIAL_TESTS).map(t => ({ ...t, status: 'PENDING' })) });
   },
 
   setActiveMethodId: async (methodId: string) => {
@@ -556,32 +610,82 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({ isRunningTests: false });
   },
 
-  runCodeInConsole: async (stdin = '') => {
-    const { isBackendOnline, code } = get();
+  runCodeInConsole: async () => {
+    const { isBackendOnline, programSessionId } = get();
     set({ bottomTab: 'console' });
-    const now = new Date().toTimeString().split(' ')[0];
-    get().addConsoleLog(`[${now}] Компиляция и запуск Main.java в песочнице JVM...`);
+    const stamp = () => new Date().toTimeString().split(' ')[0];
 
-    if (isBackendOnline) {
-      try {
-        const res = await ApiClient.runCode(get().getProjectFiles(), undefined, stdin);
-        if (!res.compiled) {
-          get().addConsoleLog(`[ERROR] Ошибка компиляции:\n${res.compileOutput}`);
-          return;
-        }
-        if (res.stdout) {
-          res.stdout.split('\n').filter((l: string) => l.trim().length > 0).forEach((line: string) => {
-            get().addConsoleLog(`[STDOUT] ${line}`);
-          });
-        }
-        if (res.stderr) {
-          get().addConsoleLog(`[STDERR] ${res.stderr}`);
-        }
-        get().addConsoleLog(`[${now}] Процесс завершен (код: ${res.exitCode}, время: ${res.millis} мс) ✔`);
-      } catch (err: any) {
-        get().addConsoleLog(`[ERROR] Сбой выполнения: ${err.message}`);
-      }
+    if (!isBackendOnline) {
+      get().addConsoleLog(`[${stamp()}] [WARN] Бэкенд оффлайн: запуск программы недоступен.`);
+      return;
     }
+    // Повторный запуск: останавливаем предыдущую программу, её поток игнорируем по токену
+    if (programSessionId) void ApiClient.stopSession(programSessionId);
+    const token = ++programRunToken;
+    const current = () => token === programRunToken;
+    openProgramLine = null;
+    set({ isProgramRunning: true, programSessionId: null });
+    get().addConsoleLog(`[${stamp()}] Компиляция и запуск Main.java в песочнице JVM...`);
+
+    const finish = () => {
+      openProgramLine = null;
+      set({ isProgramRunning: false, programSessionId: null });
+    };
+
+    await ApiClient.runSession(get().getProjectFiles(), undefined, {
+      onSession: (id) => { if (current()) set({ programSessionId: id }); },
+      onOut: (text) => { if (current()) appendProgramText('out', text); },
+      onErr: (text) => { if (current()) appendProgramText('err', text); },
+      onCompileError: (output) => {
+        if (!current()) return;
+        get().addConsoleLog(`[ERROR] Ошибка компиляции:\n${output}`);
+        finish();
+      },
+      onExit: (info) => {
+        if (!current()) return;
+        openProgramLine = null;
+        const reasons: Record<string, string> = {
+          idle: 'остановлено: программа долго ничего не вводила и не выводила',
+          'max-time': 'остановлено: превышено максимальное время работы',
+          'output-limit': 'остановлено: слишком большой вывод',
+          stopped: 'остановлено пользователем',
+        };
+        if (info.reason) {
+          get().addConsoleLog(`[${stamp()}] [WARN] Процесс ${reasons[info.reason] ?? info.reason} (время: ${info.millis} мс)`);
+        } else if (info.exitCode === 0) {
+          get().addConsoleLog(`[${stamp()}] Процесс завершен (код: 0, время: ${info.millis} мс) ✔`);
+        } else {
+          get().addConsoleLog(`[${stamp()}] Процесс завершен с кодом ${info.exitCode} (время: ${info.millis} мс)`);
+        }
+        finish();
+      },
+      onError: (message) => {
+        if (!current()) return;
+        get().addConsoleLog(`[ERROR] Сбой выполнения: ${message}`);
+        finish();
+      },
+    });
+    // Поток закрылся без события exit (обрыв сети): снимаем «идёт запуск»
+    if (current() && get().isProgramRunning) finish();
+  },
+
+  sendConsoleInput: (text: string) => {
+    const id = get().programSessionId;
+    if (!id) return;
+    echoProgramInput(text);
+    ApiClient.sendStdin(id, text + '\n').catch((e: any) => get().addConsoleLog(`[ERROR] ${e.message}`));
+  },
+
+  sendConsoleEof: () => {
+    const id = get().programSessionId;
+    if (!id) return;
+    echoProgramInput('^D');
+    ApiClient.sendStdin(id, '', true).catch((e: any) => get().addConsoleLog(`[ERROR] ${e.message}`));
+  },
+
+  stopProgram: () => {
+    const id = get().programSessionId;
+    if (id) void ApiClient.stopSession(id);
   },
 
   startDebug: () => {

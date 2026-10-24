@@ -8,6 +8,7 @@ import com.axenix.blueprints.optimizer.OptimizerServiceImpl;
 import com.axenix.blueprints.parser.GraphEditServiceImpl;
 import com.axenix.blueprints.parser.ParseServiceImpl;
 import com.axenix.blueprints.sandbox.CompilerService;
+import com.axenix.blueprints.sandbox.InteractiveRunService;
 import com.axenix.blueprints.sandbox.ProcessRunner;
 import com.axenix.blueprints.sandbox.ReportStore;
 import com.axenix.blueprints.sandbox.RunServiceImpl;
@@ -67,5 +68,11 @@ public class ServicesConfig {
 
     @Bean RunService runService(CompilerService compiler, ProcessRunner runner) {
         return new RunServiceImpl(compiler, runner);
+    }
+
+    @Bean InteractiveRunService interactiveRunService(CompilerService compiler, ProcessRunner runner,
+            @Value("${blueprints.interactive.idle-ms:120000}") long idleMs,
+            @Value("${blueprints.interactive.max-ms:600000}") long maxMs) {
+        return new InteractiveRunService(compiler, runner, idleMs, maxMs, 5);
     }
 }

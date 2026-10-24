@@ -223,6 +223,80 @@ export const ApiClient = {
     return res.json();
   },
 
+  /**
+   * Интерактивный запуск: вывод приходит по SSE по мере появления, ввод подаётся отдельными запросами (sendStdin).
+   * Промис завершается, когда поток закрыт.
+   */
+  async runSession(
+    files: ProjectFileDto[],
+    mainClass: string | undefined,
+    h: {
+      onSession: (id: string) => void;
+      onOut: (text: string) => void;
+      onErr: (text: string) => void;
+      onCompileError: (output: string) => void;
+      onExit: (info: { exitCode: number; millis: number; reason: string | null }) => void;
+      onError: (message: string) => void;
+    },
+    signal?: AbortSignal
+  ) {
+    try {
+      const response = await fetch(`${API_BASE}/run/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify({ files, mainClass }),
+        signal,
+      });
+      if (!response.ok || !response.body) {
+        const err = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
+        throw new Error(err.message || `HTTP ${response.status}`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split(/\r?\n\r?\n/);
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          let eventName = 'message';
+          let dataStr = '';
+          for (const line of part.split(/\r?\n/)) {
+            if (line.startsWith('event:')) eventName = line.substring(6).trim();
+            else if (line.startsWith('data:')) dataStr += line.substring(5).replace(/^ /, '');
+          }
+          if (eventName === 'session') h.onSession(dataStr.trim());
+          else if (eventName === 'out') h.onOut(JSON.parse(dataStr));
+          else if (eventName === 'err') h.onErr(JSON.parse(dataStr));
+          else if (eventName === 'compile-error') h.onCompileError(JSON.parse(dataStr));
+          else if (eventName === 'exit') h.onExit(JSON.parse(dataStr));
+          else if (eventName === 'error') h.onError(JSON.parse(dataStr));
+        }
+      }
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') h.onError(err?.message || 'Сбой интерактивного запуска');
+    }
+  },
+
+  /** Ввод в запущенную программу; eof=true закрывает stdin (Ctrl+D). */
+  async sendStdin(sessionId: string, text: string, eof = false) {
+    const res = await fetch(`${API_BASE}/run/session/${encodeURIComponent(sessionId)}/stdin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, eof }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      throw new Error(err.message || 'Не удалось передать ввод');
+    }
+  },
+
+  async stopSession(sessionId: string) {
+    await fetch(`${API_BASE}/run/session/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => undefined);
+  },
+
   /** Запуск авто-декомпозиции на 4 класса */
   async decomposeMonolith(files: ProjectFileDto[]) {
     const res = await fetch(`${API_BASE}/decompose`, {

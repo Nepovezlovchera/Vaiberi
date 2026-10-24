@@ -29,7 +29,7 @@
 `{ files }` → `{ issues: CodeIssue[], metrics: ComplexityMetric }`.
 Типы проблем: NESTED_LOOP, COSTLY_CALL_IN_LOOP, LONG_METHOD, HIGH_CYCLOMATIC, DUPLICATION (дубли методов и повторяющиеся условия).
 
-Автоисправление через `POST /api/optimize` с `issueId`: COSTLY_CALL_IN_LOOP, NESTED_LOOP (HashSet/HashMap), LONG_METHOD и HIGH_CYCLOMATIC (Extract Method), DUPLICATION (повторяющееся условие → общий `private static boolean`-метод; метод-дубликат → делегирование первому). Остальное — через LLM (`allowLlm=true`).
+Автоисправление через `POST /api/optimize` с `issueId`: COSTLY_CALL_IN_LOOP, NESTED_LOOP (HashSet/HashMap, в т.ч. индексные циклы i/j), LONG_METHOD и HIGH_CYCLOMATIC (Extract Method), DUPLICATION (повторяющееся условие → общий `private static boolean`-метод; метод-дубликат → делегирование первому). Остальное — через LLM (`allowLlm=true`).
 
 ## POST /api/optimize, /api/decompose
 * `/optimize { files, issueId?, allowLlm }` → `{ files, strategy: TEMPLATE|LLM|CACHED, explanation }`. Без `issueId` применяются все шаблонные исправления подряд: `list.contains` в цикле → `HashSet`, вложенные foreach с `a.key.equals(b.key)` → индекс `HashMap<Object, List<B>>`.
@@ -46,6 +46,15 @@ complexityAfter, testResults[{name, status: PASSED|FAILED|TIMEOUT|COMPILE_ERROR,
 
 ## POST /api/run
 `{ files, mainClass?, stdin? }` → `{ compiled, compileOutput, stdout, stderr, exitCode, timedOut, durationMs }`.
+
+## POST /api/run/session — интерактивная консоль
+Тело как у `/api/run` (без `stdin`). Ответ — SSE: `session` (id), `out`/`err` (JSON-строка с фрагментом вывода; приглашения
+без перевода строки приходят сразу), `compile-error` (JSON-строка), `exit` (`{exitCode, millis, reason}`, `reason`:
+`null` | `idle` | `max-time` | `output-limit` | `stopped`), `error`.
+Ввод: `POST /api/run/session/{id}/stdin` `{ text, eof }` (`eof: true` закрывает stdin, как Ctrl+D);
+остановка: `DELETE /api/run/session/{id}`.
+Лимиты: простой без ввода/вывода 120 с (`blueprints.interactive.idle-ms`), общее время 10 мин (`blueprints.interactive.max-ms`),
+вывод 1 000 000 символов, до 5 одновременных сессий.
 
 ## Профиль заглушек
 `--spring.profiles.active=stub` — все эндпоинты отдают моки для работы фронта без бэкенда.

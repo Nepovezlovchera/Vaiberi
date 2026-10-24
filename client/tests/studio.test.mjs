@@ -58,6 +58,44 @@ test('graph and analysis receive every source, including non-active files', asyn
   assert.ok(received.every(files => files.length === 2));
 });
 
+test('interactive console runs all project sources and lets the server find the main class', async () => {
+  await store.getState().importProject([
+    { name: 'demo/App.java', content: 'package demo; class App { public static void main(String[] a) { Helper.f(); } }' },
+    { name: 'demo/Helper.java', content: 'package demo; class Helper { static void f() {} }' },
+  ]);
+  store.setState({ isBackendOnline: true });
+  const previous = ApiClient.runSession;
+  try {
+    ApiClient.runSession = async (files, mainClass, handlers) => {
+      assert.deepEqual(files, store.getState().getProjectFiles());
+      assert.equal(files.length, 2);
+      assert.equal(mainClass, undefined);
+      handlers.onSession('session');
+      handlers.onOut('Ready: ');
+      handlers.onOut('done\n');
+      handlers.onExit({ exitCode: 0, millis: 1, reason: null });
+    };
+    await store.getState().runCodeInConsole();
+    assert.equal(store.getState().isProgramRunning, false);
+    assert.equal(store.getState().programSessionId, null);
+    assert.ok(store.getState().consoleLogs.includes('[STDOUT] Ready: done'));
+  } finally { ApiClient.runSession = previous; }
+});
+
+test('preset switching replaces imported sources and resets the verification baseline', async () => {
+  await store.getState().importProject([{ name: 'Other.java', content: 'class Other {}' }]);
+  await store.getState().setPreset('demo');
+  const demo = store.getState().getProjectFiles();
+  assert.equal(demo.length, 1);
+  assert.equal(demo[0].path, 'Main.java');
+  assert.match(demo[0].source, /processOrders/);
+  assert.deepEqual(store.getState().baselineFiles, demo);
+  await store.getState().setPreset('monolith');
+  assert.notEqual(store.getState().getProjectFiles()[0].source, demo[0].source);
+  assert.deepEqual(store.getState().baselineFiles, store.getState().getProjectFiles());
+  assert.equal(store.getState().verificationReport, null);
+});
+
 test('failed optimization preserves project and exposes full compiler diagnostics', async () => {
   const before = store.getState().getProjectFiles();
   store.setState({ isBackendOnline: true, tests: [{ id: 'case', name: 'case', stdin: '', status: 'PENDING', durationMs: 0 }] });

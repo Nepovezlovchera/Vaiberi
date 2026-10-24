@@ -239,6 +239,83 @@ class OptimizerServiceTest {
         assertTrue(v.behaviorMatched(), v.testResults().toString() + v.compileOutput() + r.files().get(0).source());
     }
 
+    @Test
+    void longMethodCanBeExtractedAgainFromGeneratedHelper() {
+        StringBuilder source = new StringBuilder("public class Main {\n")
+                .append("  static int run(int x) {\n    int value = x;\n");
+        for (int i = 0; i < 100; i++) source.append("    value += ").append(i).append(";\n");
+        source.append("    return value;\n  }\n  public static void main(String[] a) { System.out.println(run(1)); }\n}\n");
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", source.toString()));
+        CodeIssue first = issue(files, "LONG_METHOD", "Main.run");
+        OptimizeResponse firstFix = optimizer.optimize(new OptimizeRequest(files, first.id(), false));
+        CodeIssue helper = issue(firstFix.files(), "LONG_METHOD", "Main.runPart1");
+        OptimizeResponse secondFix = optimizer.optimize(new OptimizeRequest(firstFix.files(), helper.id(), false));
+        var result = new com.github.javaparser.JavaParser()
+                .parse(secondFix.files().get(0).source()).getResult().orElseThrow();
+        var methods = result.getClassByName("Main").orElseThrow().getMethods();
+        var newHelpers = methods.stream()
+                .filter(m -> m.getNameAsString().startsWith("runPart") && !m.getNameAsString().equals("runPart1"))
+                .toList();
+        assertEquals(1, newHelpers.size(), secondFix.files().get(0).source());
+        String newName = newHelpers.get(0).getNameAsString();
+        assertTrue(methods.stream().filter(m -> m.getNameAsString().equals("runPart1"))
+                .anyMatch(m -> m.findAll(com.github.javaparser.ast.expr.MethodCallExpr.class).stream()
+                        .anyMatch(call -> call.getNameAsString().equals(newName))));
+        assertSameBehavior(files, secondFix.files());
+    }
+
+    @Test
+    void compoundDuplicateIdLoopUsesLinearSetFix() {
+        String src = "import java.util.*;\n"
+                + "public class Main {\n"
+                + "  static class Order { String id; Order(String id) { this.id = id; } }\n"
+                + "  static List<String> duplicateIds(List<Order> orders) {\n"
+                + "    List<String> duplicates = new ArrayList<>();\n"
+                + "    for (Order a : orders) {\n"
+                + "      for (Order b : orders) {\n"
+                + "        if (a != b && a.id.equals(b.id)) {\n"
+                + "          if (!duplicates.contains(a.id)) { duplicates.add(a.id); }\n"
+                + "        }\n"
+                + "      }\n"
+                + "    }\n"
+                + "    return duplicates;\n"
+                + "  }\n"
+                + "  public static void main(String[] a) {\n"
+                + "    List<Order> x = List.of(new Order(\"a\"), new Order(\"b\"), new Order(\"a\"));\n"
+                + "    System.out.println(duplicateIds(x));\n"
+                + "  }\n"
+                + "}\n";
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", src));
+        CodeIssue i = issue(files, "NESTED_LOOP", "Main.duplicateIds");
+        OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, i.id(), false));
+        assertEquals("TEMPLATE", r.strategy());
+        assertTrue(r.files().get(0).source().contains("HashSet") || r.files().get(0).source().contains("LinkedHashSet"), r.files().get(0).source());
+        assertSameBehavior(files, r.files());
+    }
+
+    @Test
+    void duplicateConditionCanBeFixedAfterExtractMethod() {
+        StringBuilder src = new StringBuilder("import java.util.*;\npublic class Main {\n")
+                .append("  static String report(List<Integer> xs) {\n")
+                .append("    if (xs == null || xs.isEmpty()) return \"empty\";\n")
+                .append("    StringBuilder out = new StringBuilder();\n");
+        for (int i = 0; i < 70; i++) src.append("    out.append(").append(i).append(");\n");
+        src.append("    if (xs == null || xs.isEmpty()) out.append(\"empty\");\n")
+                .append("    return out.toString();\n  }\n")
+                .append("  public static void main(String[] a) { System.out.println(report(List.of(1))); }\n}\n");
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", src.toString()));
+        CodeIssue longIssue = issue(files, "LONG_METHOD", "Main.report");
+        OptimizeResponse extracted = optimizer.optimize(new OptimizeRequest(files, longIssue.id(), false));
+        AnalysisReport after = analyzer.analyze(extracted.files());
+        CodeIssue condition = after.issues().stream()
+                .filter(x -> x.type().equals("DUPLICATION") && x.title().equals("Повторяющееся условие"))
+                .findFirst().orElseThrow();
+        OptimizeResponse fixed = optimizer.optimize(new OptimizeRequest(extracted.files(), condition.id(), false));
+        assertSameBehavior(files, fixed.files());
+        assertTrue(analyzer.analyze(fixed.files()).issues().stream()
+                .noneMatch(x -> x.type().equals("DUPLICATION") && x.title().equals("Повторяющееся условие")), fixed.files().get(0).source());
+    }
+
     private static final String DUP = String.join("\n",
             "import java.util.*;",
             "public class Main {",
@@ -300,5 +377,69 @@ class OptimizerServiceTest {
         OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, i.id(), false));
         assertTrue(r.files().get(0).source().contains("return first(ys);"), r.files().get(0).source());
         assertSameBehavior(files, r.files());
+    }
+
+    private static final String IDX = String.join("\n",
+            "import java.util.*;",
+            "public class Main {",
+            "    static class Order {",
+            "        final int id;",
+            "        final String name;",
+            "        Order(int id, String name) { this.id = id; this.name = name; }",
+            "    }",
+            "    static int countDuplicateIds(List<Order> orders) {",
+            "        int count = 0;",
+            "        for (int i = 0; i < orders.size(); i++) {",
+            "            for (int j = i + 1; j < orders.size(); j++) {",
+            "                if (orders.get(i).id == orders.get(j).id) {",
+            "                    count += j - i;",
+            "                }",
+            "            }",
+            "        }",
+            "        return count;",
+            "    }",
+            "    static int byName(List<Order> orders) {",
+            "        int count = 0;",
+            "        for (int i = 0; i < orders.size(); i++) {",
+            "            for (int j = 0; j < orders.size(); j++) {",
+            "                if (orders.get(i).name.equals(orders.get(j).name)) {",
+            "                    count += i * 3 + j;",
+            "                }",
+            "            }",
+            "        }",
+            "        return count;",
+            "    }",
+            "    static int refCompare(List<Order> orders) {",
+            "        int count = 0;",
+            "        for (int i = 0; i < orders.size(); i++) {",
+            "            for (int j = i + 1; j < orders.size(); j++) {",
+            "                if (orders.get(i).name == orders.get(j).name) {",
+            "                    count++;",
+            "                }",
+            "            }",
+            "        }",
+            "        return count;",
+            "    }",
+            "    public static void main(String[] a) {",
+            "        List<Order> l = new ArrayList<>();",
+            "        String[] n = {\"a\", \"b\", \"a\", \"c\", \"b\"};",
+            "        for (int k = 0; k < 30; k++) l.add(new Order(k % 7, n[k % 5]));",
+            "        System.out.println(countDuplicateIds(l) + \" \" + byName(l) + \" \" + refCompare(l));",
+            "    }",
+            "}");
+
+    /** Индексные циклы i/j: индекс позиций по ключу; == только для примитивов, у ссылочных типов шаблон отказывает. */
+    @Test
+    void indexedPairLoopsUsePositionIndexAndKeepBehavior() {
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", IDX));
+        OptimizeResponse r1 = optimizer.optimize(new OptimizeRequest(files, issue(files, "NESTED_LOOP", "Main.countDuplicateIds").id(), false));
+        List<ProjectFile> step = r1.files();
+        assertTrue(step.get(0).source().contains("posByKey"), step.get(0).source());
+        OptimizeResponse r2 = optimizer.optimize(new OptimizeRequest(step, issue(step, "NESTED_LOOP", "Main.byName").id(), false));
+        assertSameBehavior(files, r2.files());
+        assertTrue(analyzer.analyze(r2.files()).issues().stream()
+                .noneMatch(x -> x.type().equals("NESTED_LOOP") && x.nodeId().startsWith("Main.countDuplicateIds")), r2.files().get(0).source());
+        CodeIssue unsafe = issue(files, "NESTED_LOOP", "Main.refCompare");
+        assertThrows(IllegalArgumentException.class, () -> optimizer.optimize(new OptimizeRequest(files, unsafe.id(), false)));
     }
 }

@@ -2,26 +2,81 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Axenix Brand Core Constants */
+  --brand-orange: #f37022;
+  --brand-orange-hover: #ff6500;
+  --brand-orange-dark: #c5621b;
+  --brand-purple: #5f308c;
+  --brand-purple-hover: #77239b;
+  --brand-beige: #eae8e4;
+  --brand-noir: #080407;
+
+  /* Theme: Axenix Corporate Sand & Pearl (Light Mode) */
+  --color-bg: #f7f6f4;
+  --color-surface: #ffffff;
+  --color-surface-elevated: #eae8e4;
+  --color-border: #dcd7cf;
+  --color-text: #080407;
+  --color-text-secondary: #2f2734;
+  --color-text-muted: #6b6370;
+  --color-text-subtle: #968e9b;
+
+  --color-scrollbar-track: #f7f6f4;
+  --color-scrollbar-thumb: #dcd7cf;
+  --color-scrollbar-thumb-hover: #b8b1a7;
+
+  --color-flow-dots: #d5cfc5;
+  --color-flow-pane: #f7f6f4;
+  --color-flow-minimap-mask: rgba(247, 246, 244, 0.75);
+}
+
+.dark {
+  /* Theme: Axenix Noir Tech (Dark Mode) */
+  --color-bg: #080407;
+  --color-surface: #120e16;
+  --color-surface-elevated: #1a1520;
+  --color-border: #2d2436;
+  --color-text: #fdfcfb;
+  --color-text-secondary: #cfc8d4;
+  --color-text-muted: #8d8396;
+  --color-text-subtle: #5b5263;
+
+  --color-scrollbar-track: #080407;
+  --color-scrollbar-thumb: #2d2436;
+  --color-scrollbar-thumb-hover: #483954;
+
+  --color-flow-dots: #2d2436;
+  --color-flow-pane: #080407;
+  --color-flow-minimap-mask: rgba(8, 4, 7, 0.75);
+}
+
 @layer base {
   * {
-    border-color: #27272a;
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: 'Montserrat', 'Inter', system-ui, -apple-system, sans-serif;
+    transition: background-color 0.25s ease, color 0.25s ease;
   }
 }
 
-/* Custom sleek dark scrollbar */
+/* Custom sleek Axenix scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: var(--color-scrollbar-track);
 }
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: var(--color-scrollbar-thumb);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: var(--color-scrollbar-thumb-hover);
 }
 
 /* Utility to hide scrollbar for responsive toolbars */
@@ -33,53 +88,80 @@
   scrollbar-width: none;
 }
 
-/* Light Mode Overrides when html has not .dark */
+/* Light Mode Overrides for Tailwind Zinc Utilities when not in dark mode */
 html:not(.dark) {
   color-scheme: light;
 }
 html:not(.dark) body {
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: #f7f6f4;
+  color: #080407;
 }
 html:not(.dark) .bg-background {
-  background-color: #f1f5f9;
+  background-color: #f7f6f4;
 }
 html:not(.dark) .bg-surface {
   background-color: #ffffff;
 }
+html:not(.dark) .bg-surface-elevated {
+  background-color: #eae8e4;
+}
 html:not(.dark) .border-border,
 html:not(.dark) * {
-  border-color: #e2e8f0;
+  border-color: #dcd7cf;
 }
 html:not(.dark) .bg-zinc-900 {
-  background-color: #f8fafc !important;
+  background-color: #f7f6f4 !important;
 }
 html:not(.dark) .bg-zinc-800 {
-  background-color: #e2e8f0 !important;
+  background-color: #eae8e4 !important;
+}
+html:not(.dark) .bg-zinc-800\/80 {
+  background-color: rgba(234, 232, 228, 0.85) !important;
+}
+html:not(.dark) .bg-zinc-800\/40 {
+  background-color: rgba(234, 232, 228, 0.5) !important;
+}
+html:not(.dark) .hover\:bg-zinc-700\/80:hover {
+  background-color: rgba(226, 222, 215, 0.9) !important;
+}
+html:not(.dark) .hover\:bg-zinc-800:hover {
+  background-color: #e2ded7 !important;
 }
 html:not(.dark) .text-zinc-100 {
-  color: #0f172a !important;
+  color: #080407 !important;
 }
 html:not(.dark) .text-zinc-200 {
-  color: #1e293b !important;
+  color: #251e29 !important;
 }
 html:not(.dark) .text-zinc-300 {
-  color: #334155 !important;
+  color: #43394a !important;
 }
 html:not(.dark) .text-zinc-400 {
-  color: #64748b !important;
+  color: #6b6370 !important;
+}
+html:not(.dark) .text-zinc-500 {
+  color: #8e8494 !important;
+}
+html:not(.dark) .hover\:text-white:hover {
+  color: #080407 !important;
+}
+html:not(.dark) .hover\:text-zinc-200:hover {
+  color: #080407 !important;
 }
 
-/* React Flow custom dark background and overrides */
+/* React Flow custom background and controls in Axenix brand style */
 .react-flow__pane {
   cursor: grab;
+  background-color: var(--color-flow-pane);
+  transition: background-color 0.25s ease;
 }
 .react-flow__pane:active {
   cursor: grabbing;
 }
 
 .react-flow__background-pattern dots {
-  fill: #27272a !important;
+  fill: var(--color-flow-dots) !important;
+  transition: fill 0.25s ease;
 }
 
 .react-flow__handle {
@@ -94,54 +176,54 @@ html:not(.dark) .text-zinc-400 {
   transition: stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
-/* 5. Устранение белой кнопки смены масштаба на рабочей зоне (справа снизу) */
+/* React Flow Controls */
 .react-flow__controls {
-  border: 1px solid #27272a !important;
+  border: 1px solid var(--color-border) !important;
   border-radius: 8px !important;
   overflow: hidden !important;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3) !important;
 }
 .react-flow__controls button {
-  background: #121215 !important;
-  border-bottom: 1px solid #27272a !important;
-  fill: #a1a1aa !important;
-  color: #a1a1aa !important;
+  background: var(--color-surface) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  fill: var(--color-text-muted) !important;
+  color: var(--color-text-muted) !important;
+  transition: background-color 0.15s ease, fill 0.15s ease;
 }
 .react-flow__controls button:hover {
-  background: #27272a !important;
-  fill: #ffffff !important;
+  background: var(--color-surface-elevated) !important;
+  fill: var(--brand-orange) !important;
 }
 
-/* 6. Изменение цветовой палитры кнопки React Flow (справа снизу) */
+/* React Flow Attribution */
 .react-flow__attribution {
-  background: rgba(18, 18, 21, 0.85) !important;
+  background: var(--color-surface) !important;
   backdrop-filter: blur(8px) !important;
   -webkit-backdrop-filter: blur(8px) !important;
-  border: 1px solid #27272a !important;
+  border: 1px solid var(--color-border) !important;
   border-radius: 6px !important;
   padding: 2px 8px !important;
   font-family: inherit !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
 }
 .react-flow__attribution a {
-  color: #71717a !important;
+  color: var(--color-text-muted) !important;
   font-size: 10px !important;
   font-weight: 500 !important;
   text-decoration: none !important;
   transition: color 0.2s ease !important;
 }
 .react-flow__attribution a:hover {
-  color: #60a5fa !important;
+  color: var(--brand-orange) !important;
 }
 
-/* Monaco decoration line */
-/* Узел, на который бросят перетаскиваемый узел или блок палитры */
+/* Monaco decoration line and drop target */
 .react-flow__node.drop-target > div {
-  outline: 2px dashed #60a5fa;
+  outline: 2px dashed var(--brand-orange);
   outline-offset: 4px;
 }
 
 .highlighted-ast-line {
-  background: rgba(245, 158, 11, 0.18) !important;
-  border-left: 3px solid #f59e0b !important;
+  background: rgba(243, 112, 34, 0.18) !important;
+  border-left: 3px solid var(--brand-orange) !important;
 }
