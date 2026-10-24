@@ -97,6 +97,35 @@ export interface VerifyRequestDto {
   mode: 'EXACT' | 'SORTED_LINES' | 'MASKED';
 }
 
+export type MutateAction = 'UPDATE_CODE' | 'DELETE_NODE' | 'INSERT_NODE' | 'REORDER';
+
+export interface MutateRequestDto {
+  files: ProjectFileDto[];
+  action: MutateAction;
+  nodeId?: string;
+  /** Контейнер для INSERT_NODE / REORDER: `<methodId>/entry` или `<methodId>/s<путь>:<слот>` */
+  parentId?: string;
+  /** Позиция в контейнере, с 0 */
+  index?: number;
+  payload?: string;
+  template?: string;
+  validate?: boolean;
+}
+
+export interface MutateResponseDto {
+  files: ProjectFileDto[];
+  graph: GraphResponseDto;
+  validated: boolean;
+  compileOutput: string;
+}
+
+/** Ошибка API с кодом сервера: COMPILE_ERROR, BAD_REQUEST, PARSE_ERROR... */
+export class ApiError extends Error {
+  constructor(message: string, public code?: string, public status?: number) {
+    super(message);
+  }
+}
+
 const API_BASE = '/api';
 
 export const ApiClient = {
@@ -149,23 +178,19 @@ export const ApiClient = {
   },
 
   /** Мутация графа */
-  async mutateGraph(
-    files: ProjectFileDto[],
-    action: 'UPDATE_CODE' | 'DELETE_NODE' | 'INSERT_NODE' | 'REORDER',
-    nodeId?: string,
-    payload?: string,
-    template?: string,
-    parentId?: string,
-    index?: number
-  ) {
+  /**
+   * Правка графа. Сервер ничего не хранит: при ошибке (400 COMPILE_ERROR / BAD_REQUEST) исходный код не изменён.
+   * validate по умолчанию true — результат проверяется компиляцией.
+   */
+  async mutateGraph(req: MutateRequestDto): Promise<MutateResponseDto> {
     const res = await fetch(`${API_BASE}/graph/mutate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files, action, nodeId, payload, template, parentId, index, validate: false }),
+      body: JSON.stringify({ validate: true, ...req }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: res.statusText }));
-      throw new Error(err.message || 'Ошибка мутации AST');
+      throw new ApiError(err.message || 'Ошибка мутации AST', err.code, res.status);
     }
     return res.json();
   },

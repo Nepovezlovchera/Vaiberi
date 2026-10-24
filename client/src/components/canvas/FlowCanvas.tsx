@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useEffect } from 'react';
+import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -11,6 +11,7 @@ import {
   BackgroundVariant,
   useReactFlow,
   ReactFlowProvider,
+  Node,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -24,6 +25,7 @@ import { ReturnNode } from './nodes/ReturnNode';
 import { TryNode, SwitchNode } from './nodes/StructNode';
 import { JumpNode } from './nodes/JumpNode';
 import { getLayoutedElements } from './layout';
+import { isEntryNode } from '../../store/graphEdits';
 import { LayoutGrid, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 
 const FlowCanvasInternal: React.FC = () => {
@@ -46,8 +48,73 @@ const FlowCanvasInternal: React.FC = () => {
     isMutating,
     syncStatus,
     syncError,
+    moveNode,
+    mutationError,
+    dismissMutationError,
   } = useStudioStore();
-  const { fitView, zoomIn, zoomOut } = useReactFlow();
+  const { fitView, zoomIn, zoomOut, getIntersectingNodes, screenToFlowPosition } = useReactFlow();
+
+  // Позиция узла до перетаскивания: если перенос не состоялся, узел возвращается на место
+  const dragOrigin = useRef<{ id: string; x: number; y: number } | null>(null);
+  // Узел, на который сейчас наведён перетаскиваемый узел (подсветка цели)
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  /** Узел под перетаскиваемым: из пересекающихся — ближайший по центру */
+  const findDropTarget = useCallback(
+    (dragged: Node): Node | null => {
+      const w = dragged.measured?.width ?? 0;
+      const h = dragged.measured?.height ?? 0;
+      const cx = dragged.position.x + w / 2;
+      const cy = dragged.position.y + h / 2;
+      let best: Node | null = null;
+      let bestDist = Infinity;
+      for (const n of getIntersectingNodes(dragged)) {
+        if (n.id === dragged.id) continue;
+        const nx = n.position.x + (n.measured?.width ?? 0) / 2;
+        const ny = n.position.y + (n.measured?.height ?? 0) / 2;
+        const d = (nx - cx) ** 2 + (ny - cy) ** 2;
+        if (d < bestDist) {
+          best = n;
+          bestDist = d;
+        }
+      }
+      return best;
+    },
+    [getIntersectingNodes]
+  );
+
+  const restoreDragged = useCallback(() => {
+    const origin = dragOrigin.current;
+    dragOrigin.current = null;
+    if (!origin) return;
+    setNodes((nds) => nds.map((n) => (n.id === origin.id ? { ...n, position: { x: origin.x, y: origin.y } } : n)));
+  }, [setNodes]);
+
+  const onNodeDragStart = useCallback((_: MouseEvent | TouchEvent, node: Node) => {
+    dragOrigin.current = { id: node.id, x: node.position.x, y: node.position.y };
+  }, []);
+
+  const onNodeDrag = useCallback(
+    (_: MouseEvent | TouchEvent, node: Node) => setDropTargetId(findDropTarget(node)?.id ?? null),
+    [findDropTarget]
+  );
+
+  // Брошен на узел — перенос после него (с Shift — в начало его тела) через /api/graph/mutate REORDER.
+  // Мимо узлов или перенос не удался — узел возвращается на место, код не меняется.
+  const onNodeDragStop = useCallback(
+    async (event: MouseEvent | TouchEvent, node: Node) => {
+      setDropTargetId(null);
+      const target = findDropTarget(node);
+      if (!target) {
+        restoreDragged();
+        return;
+      }
+      const moved = await moveNode(node.id, target.id, event.shiftKey);
+      if (!moved) restoreDragged();
+      dragOrigin.current = null;
+    },
+    [findDropTarget, moveNode, restoreDragged]
+  );
 
   const nodeTypes = useMemo(
     () => ({
@@ -133,15 +200,12 @@ const FlowCanvasInternal: React.FC = () => {
       const type = event.dataTransfer.getData('application/reactflow');
       if (!type) return;
 
-      const bounds = event.currentTarget.getBoundingClientRect();
-      const position = {
-        x: event.clientX - bounds.left - 100,
-        y: event.clientY - bounds.top - 30,
-      };
-
-      addCustomNode(type, position);
+      // Блок встаёт после узла, на который брошен (с Shift — в начало его тела), мимо узлов — в конец метода
+      const point = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const target = getIntersectingNodes({ x: point.x, y: point.y, width: 1, height: 1 })[0];
+      addCustomNode(type, target?.id ?? null, event.shiftKey);
     },
-    [addCustomNode]
+    [addCustomNode, getIntersectingNodes, screenToFlowPosition]
   );
 
   // Добавляем selected флаг к активной ноде
@@ -149,8 +213,11 @@ const FlowCanvasInternal: React.FC = () => {
     return nodes.map((node) => ({
       ...node,
       selected: node.id === selectedNodeId,
+      className: node.id === dropTargetId ? 'drop-target' : undefined,
+      // Пока правка идёт на сервере, граф не трогаем
+      draggable: !isMutating && !isEntryNode(node.id),
     }));
-  }, [nodes, selectedNodeId]);
+  }, [nodes, selectedNodeId, dropTargetId, isMutating]);
 
   return (
     <div className="relative w-full h-full bg-[#0a0a0c] overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
@@ -237,6 +304,27 @@ const FlowCanvasInternal: React.FC = () => {
         </div>
       )}
 
+      {/* Ошибка правки графа: правка уже откачена, код не изменён */}
+      {mutationError && (
+        <div className="absolute top-14 right-4 z-20 w-[min(420px,60%)] rounded-lg border border-rose-500/50 bg-rose-950/95 shadow-2xl">
+          <div className="flex items-start justify-between gap-2 px-3 pt-2">
+            <span className="text-xs font-semibold text-rose-200">{mutationError.split('\n')[0]}</span>
+            <button
+              onClick={dismissMutationError}
+              className="text-rose-300 hover:text-white text-xs leading-none"
+              title="Закрыть"
+            >
+              ✕
+            </button>
+          </div>
+          {mutationError.includes('\n') && (
+            <pre className="m-2 mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-2 text-[11px] text-rose-100 font-mono">
+              {mutationError.split('\n').slice(1).join('\n')}
+            </pre>
+          )}
+        </div>
+      )}
+
       {/* Top Controls Overlay */}
       <div className="absolute top-3 right-4 z-10 flex items-center gap-1.5 bg-surface/90 backdrop-blur border border-border p-1 rounded-lg shadow-xl">
         <button
@@ -278,6 +366,9 @@ const FlowCanvasInternal: React.FC = () => {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}
         fitView
         fitViewOptions={{ padding: 0.25 }}

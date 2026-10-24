@@ -12,7 +12,8 @@ import {
   INITIAL_TESTS,
 } from './mockData';
 import { SAMPLE_MONOLITH_CODE, SAMPLE_MONOLITH_TESTS } from './monolithData';
-import { ApiClient, MethodGraphResponseDto } from '../api/apiClient';
+import { ApiClient, ApiError, MethodGraphResponseDto, MutateRequestDto } from '../api/apiClient';
+import { isEntryNode, moveAfter, moveInside, nodeIdAt, paletteSnippet, placeAfter, placeInside } from './graphEdits';
 import { methodToFlow, methodOfNode, pickInitialMethod, toIssues, toMethodInfos, toMetrics } from './graphMapper';
 
 // Client-side Security: Ring Buffer limit for console to prevent DOM freeze (Client-side DoS)
@@ -24,6 +25,15 @@ let graphCache: MethodGraphResponseDto[] = [];
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
 // Номер последнего запроса: ответ на устаревший запрос (код уже поменялся) отбрасывается
 let syncSeq = 0;
+
+const updateFileCode = (items: FileItem[], fileId: string, code: string): FileItem[] =>
+  items.map((item) =>
+    item.id === fileId
+      ? { ...item, code }
+      : item.children
+        ? { ...item, children: updateFileCode(item.children, fileId, code) }
+        : item
+  );
 
 const timeNow = () => new Date().toTimeString().split(' ')[0];
 
@@ -100,8 +110,16 @@ interface StudioState {
   setEdges: (edges: Edge[] | ((prev: Edge[]) => Edge[])) => void;
   selectNode: (nodeId: string | null) => void;
   selectIssue: (issueId: string) => void;
+  /** Ошибка последней правки графа (код не скомпилировался и т.п.); правка при этом откачена */
+  mutationError: string | null;
+  dismissMutationError: () => void;
+  /** Отправить правку на /api/graph/mutate; при ошибке вернуть граф к виду до правки. true — правка применена. */
+  applyMutation: (req: Omit<MutateRequestDto, 'files'>, describe: string) => Promise<boolean>;
   deleteSelectedNode: () => Promise<void>;
-  addCustomNode: (type: string, position: { x: number; y: number }) => Promise<void>;
+  /** Блок из палитры: после узла targetNodeId, в начало его тела (inside) или в конец метода (target = null) */
+  addCustomNode: (type: string, targetNodeId: string | null, inside: boolean) => Promise<void>;
+  /** Перенос узла после targetNodeId или в начало его тела (inside). false — ничего не изменилось */
+  moveNode: (nodeId: string, targetNodeId: string, inside: boolean) => Promise<boolean>;
   setBottomTab: (tab: 'code' | 'console' | 'tests') => void;
   setRightTab: (tab: 'issues' | 'recommendations' | 'metrics') => void;
   runOptimization: () => Promise<void>;
@@ -161,6 +179,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   isRunningTests: false,
   isCompiling: false,
   isMutating: false,
+  mutationError: null,
 
   syncStatus: 'idle',
   syncError: null,
@@ -349,89 +368,113 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
   },
 
-  deleteSelectedNode: async () => {
-    const { selectedNodeId, isBackendOnline, code, activeMethodId } = get();
-    if (!selectedNodeId) return;
+  dismissMutationError: () => set({ mutationError: null }),
 
-    const now = new Date().toTimeString().split(' ')[0];
-    if (isBackendOnline) {
-      try {
-        set({ isMutating: true });
-        get().addConsoleLog(`[${now}] Вызов POST /api/graph/mutate (DELETE_NODE: ${selectedNodeId})...`);
-        const res = await ApiClient.mutateGraph(
-          [{ path: 'Main.java', source: code }],
-          'DELETE_NODE',
-          selectedNodeId
-        );
-
-        if (res.files && res.files[0]) {
-          const newSource = res.files[0].source;
-          set({ code: newSource, selectedNodeId: null, activeLineRange: null, isMutating: false });
-          get().addConsoleLog(`[${now}] Узел ${selectedNodeId} удален. Java-код монолита обновлен через AST ✔`);
-          await get().refreshGraphAndAnalysis(newSource, activeMethodId || undefined);
-          return;
-        }
-      } catch (err: any) {
-        get().addConsoleLog(`[WARN] Ошибка мутации: ${err.message}. Локальное удаление узла.`);
-        set({ isMutating: false });
-      }
+  applyMutation: async (req, describe) => {
+    const { isBackendOnline, isMutating, code, activeMethodId, nodes, edges } = get();
+    if (isMutating) return false;
+    if (!isBackendOnline) {
+      set({ mutationError: 'Правки графа выполняет бэкенд, а он недоступен. Граф не изменён.', nodes: [...nodes] });
+      return false;
     }
+    // Снимок для отката: граф до правки (в том числе позиции узлов до перетаскивания)
+    const snapshot = { nodes, edges };
+    // Отложенная пересборка по старому коду больше не нужна
+    clearTimeout(syncTimer);
+    syncSeq++;
+    set({ isMutating: true, mutationError: null });
+    get().addConsoleLog(`[${timeNow()}] POST /api/graph/mutate: ${describe}...`);
+    try {
+      const res = await ApiClient.mutateGraph({ files: [{ path: 'Main.java', source: code }], ...req });
+      const newSource = res.files?.[0]?.source;
+      if (newSource === undefined) throw new Error('Сервер не вернул код');
 
-    // Локальное удаление узла (фоллбэк)
-    set((state) => ({
-      nodes: state.nodes.filter((n) => n.id !== selectedNodeId),
-      edges: state.edges.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId),
-      selectedNodeId: null,
-      activeLineRange: null,
-    }));
-    get().addConsoleLog(`[${now}] Узел ${selectedNodeId} удален из отображения графа`);
+      // Граф берём из ответа (ID узлов пересчитаны по позициям), анализ догружаем отдельно
+      graphCache = res.graph.methods;
+      const methodsList = toMethodInfos(res.graph.methods);
+      const active = graphCache.find((m) => m.methodId === activeMethodId) ?? graphCache[0];
+      const flow = active ? methodToFlow(active, get().issues) : { nodes: [], edges: [] };
+      set((state) => ({
+        code: newSource,
+        files: updateFileCode(state.files, state.activeFileId, newSource),
+        methodsList,
+        activeMethodId: active?.methodId ?? null,
+        nodes: flow.nodes,
+        edges: flow.edges,
+        selectedNodeId: null,
+        activeLineRange: null,
+        isOptimized: false,
+        isMutating: false,
+      }));
+      const note = res.validated ? 'компиляция пройдена' : 'без проверки компиляции';
+      get().addConsoleLog(`[${timeNow()}] Правка применена (${note}) ✔`);
+      get().refreshGraphAndAnalysis(newSource, active?.methodId);
+      return true;
+    } catch (err: any) {
+      // Сервер ничего не хранит: код не менялся, возвращаем граф к виду до правки
+      const isCompile = err instanceof ApiError && err.code === 'COMPILE_ERROR';
+      const message = String(err?.message || 'Ошибка правки графа');
+      set({
+        nodes: snapshot.nodes,
+        edges: snapshot.edges,
+        isMutating: false,
+        mutationError: (isCompile ? 'Правка отменена — код не компилируется:\n' : 'Правка отменена: ') + message,
+      });
+      get().addConsoleLog(`[${timeNow()}] [ERROR] ${isCompile ? 'COMPILE_ERROR' : 'Правка'}: ${message.split('\n').slice(0, 3).join(' ')}`);
+      return false;
+    }
   },
 
-  addCustomNode: async (type: string, position: { x: number; y: number }) => {
-    const { isBackendOnline, code, activeMethodId } = get();
-    const now = new Date().toTimeString().split(' ')[0];
-
-    if (isBackendOnline && activeMethodId) {
-      try {
-        set({ isMutating: true });
-        get().addConsoleLog(`[${now}] Вызов POST /api/graph/mutate (INSERT_NODE: шаблон «${type}» в ${activeMethodId})...`);
-        const parentEntry = `${activeMethodId}/entry`;
-        const res = await ApiClient.mutateGraph(
-          [{ path: 'Main.java', source: code }],
-          'INSERT_NODE',
-          undefined,
-          undefined,
-          type,
-          parentEntry
-        );
-
-        if (res.files && res.files[0]) {
-          const newSource = res.files[0].source;
-          set({ code: newSource, isMutating: false });
-          get().addConsoleLog(`[${now}] Блок «${type}» успешно встроен в Java AST ✔`);
-          await get().refreshGraphAndAnalysis(newSource, activeMethodId);
-          return;
-        }
-      } catch (err: any) {
-        get().addConsoleLog(`[WARN] Ошибка вставки блока AST: ${err.message}`);
-        set({ isMutating: false });
-      }
+  deleteSelectedNode: async () => {
+    const { selectedNodeId } = get();
+    if (!selectedNodeId) return;
+    if (isEntryNode(selectedNodeId)) {
+      set({ mutationError: 'Метод целиком удалить нельзя — удаляются только операторы.' });
+      return;
     }
+    await get().applyMutation({ action: 'DELETE_NODE', nodeId: selectedNodeId }, `удаление ${selectedNodeId}`);
+  },
 
-    // Фоллбэк добавление узла в React Flow
-    const id = `node-${Date.now()}`;
-    const newNode: Node = {
-      id,
-      type: type as any,
-      position,
-      data: {
-        label: type === 'condition' ? 'Условие' : type === 'loop' ? 'Цикл' : type === 'var' ? 'Переменная' : 'Операция',
-        code: type === 'condition' ? 'if (condition)' : type === 'var' ? 'int x = 0;' : 'doSomething()',
-        lineStart: 1,
-        lineEnd: 1,
-      },
-    };
-    set((state) => ({ nodes: [...state.nodes, newNode], selectedNodeId: id }));
+  addCustomNode: async (type, targetNodeId, inside) => {
+    const { activeMethodId, code, nodes } = get();
+    const payload = paletteSnippet(type, code);
+    if (!payload) {
+      set({ mutationError: `Блок «${type}» нельзя вставить внутрь метода.` });
+      return;
+    }
+    if (!activeMethodId) {
+      set({ mutationError: 'Сначала выберите метод.' });
+      return;
+    }
+    const targetType = nodes.find((n) => n.id === targetNodeId)?.type ?? '';
+    // Брошен мимо узлов — в конец тела метода (index не задан)
+    const place = !targetNodeId
+      ? { parentId: `${activeMethodId}/entry`, index: undefined }
+      : inside
+        ? placeInside(targetNodeId, targetType)
+        : placeAfter(targetNodeId);
+    if (!place) {
+      set({ mutationError: 'Сюда блок вставить нельзя: у этого узла нет тела.' });
+      return;
+    }
+    const ok = await get().applyMutation(
+      { action: 'INSERT_NODE', parentId: place.parentId, index: place.index, payload },
+      `вставка «${payload.split('\n')[0]}» в ${place.parentId}`
+    );
+    if (ok && place.index !== undefined) get().selectNode(nodeIdAt({ parentId: place.parentId, index: place.index }));
+  },
+
+  moveNode: async (nodeId, targetNodeId, inside) => {
+    const { nodes } = get();
+    const targetType = nodes.find((n) => n.id === targetNodeId)?.type ?? '';
+    const place = inside ? moveInside(nodeId, targetNodeId, targetType) : moveAfter(nodeId, targetNodeId);
+    if (!place) return false;
+    const ok = await get().applyMutation(
+      { action: 'REORDER', nodeId, parentId: place.parentId, index: place.index },
+      `перенос ${nodeId} → ${place.parentId}[${place.index}]`
+    );
+    if (ok) get().selectNode(nodeIdAt(place));
+    return ok;
   },
 
   setBottomTab: (tab) => set({ bottomTab: tab }),
