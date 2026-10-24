@@ -155,6 +155,13 @@ public final class TemplateFixes {
         return r.isPresent() ? r : indexedPairsToMap(cu, line);
     }
 
+    /**
+     * Поиск одинаковых ключей во вложенном цикле с условием вида
+     * {@code a != b && a.key.equals(b.key)}. Два линейных прохода через Set
+     * сохраняют порядок исходного внешнего цикла: сначала собираются ключи,
+     * которые встречаются повторно, затем они добавляются в результат при
+     * первом появлении во внешнем порядке.
+     */
     public static Optional<String> duplicatePairsToSet(CompilationUnit cu, int line) {
         ForEachStmt outer = null;
         for (ForEachStmt f : cu.findAll(ForEachStmt.class)) {
