@@ -7,7 +7,7 @@ export const LeftSidebar: React.FC = () => {
   const [activeSection, setActiveSection] = useState<'both' | 'files' | 'blocks'>('both');
 
   return (
-    <div className="w-64 h-full bg-surface border-r border-border flex flex-col overflow-hidden select-none">
+    <div className="w-full lg:w-64 lg:shrink-0 h-full bg-surface border-r border-border flex flex-col overflow-hidden select-none">
       {/* Top Section: Проект */}
       <div className="flex flex-col flex-1 min-h-[40%] border-b border-border overflow-hidden">
         <div className="flex items-center justify-between px-3 py-2 bg-surface-elevated/70 border-b border-border text-xs font-semibold text-zinc-300">

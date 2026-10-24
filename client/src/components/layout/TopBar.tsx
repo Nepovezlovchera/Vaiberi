@@ -92,13 +92,13 @@ export const TopBar: React.FC = () => {
             <span className="font-bold text-sm text-zinc-100 hidden 2xl:inline whitespace-nowrap">
               Визуальная среда программирования
             </span>
-            <span className="2xl:ml-2 text-[10px] text-[#f37022] dark:text-[#ff7b29] font-mono font-semibold px-2 py-0.5 rounded bg-[#f37022]/10 dark:bg-[#f37022]/20 border border-[#f37022]/30 whitespace-nowrap">
+            <span className="hidden sm:inline 2xl:ml-2 text-[10px] text-[#f37022] dark:text-[#ff7b29] font-mono font-semibold px-2 py-0.5 rounded bg-[#f37022]/10 dark:bg-[#f37022]/20 border border-[#f37022]/30 whitespace-nowrap">
               Java Blueprints
             </span>
           </div>
         </div>
 
-        <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
+        <div className="hidden sm:block h-4 w-px bg-border mx-0.5 shrink-0" />
 
         {/* Live Backend Indicator (Green if online, Red if offline) */}
         <div
@@ -144,7 +144,7 @@ export const TopBar: React.FC = () => {
           <span className="hidden xl:inline">Экспорт Java</span>
         </button>
 
-        <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
+        <div className="hidden sm:block h-4 w-px bg-border mx-0.5 shrink-0" />
 
         <button
           onClick={runOptimization}
@@ -156,7 +156,7 @@ export const TopBar: React.FC = () => {
           }`}
         >
           <Sparkles className="w-3.5 h-3.5 text-white shrink-0" />
-          <span>{isCompiling ? 'Оптимизация...' : isOptimized ? 'Оптимизировано ✔' : 'Оптимизировать'}</span>
+          <span className="hidden sm:inline">{isCompiling ? 'Оптимизация...' : isOptimized ? 'Оптимизировано ✔' : 'Оптимизировать'}</span>
         </button>
 
         <button
@@ -165,7 +165,7 @@ export const TopBar: React.FC = () => {
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-600/40 transition shrink-0 whitespace-nowrap"
         >
           <Play className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-          <span>Запуск</span>
+          <span className="hidden sm:inline">Запуск</span>
         </button>
 
         {/* 2. Позиционирование кнопки «🐞 Дебаг» (Слайд 4, Слайд 8) */}
@@ -179,15 +179,15 @@ export const TopBar: React.FC = () => {
           title="Визуальный трассировщик потока управления (Visual CFG Tracer)"
         >
           <Bug className={`w-3.5 h-3.5 shrink-0 ${isDebugging ? 'text-black' : 'text-amber-400'}`} />
-          <span>{isDebugging ? 'Стоп трассировка' : 'Дебаг'}</span>
+          <span className="hidden sm:inline">{isDebugging ? 'Стоп трассировка' : 'Дебаг'}</span>
         </button>
 
-        <div className="h-4 w-px bg-border mx-0.5 shrink-0" />
+        <div className="hidden sm:block h-4 w-px bg-border mx-0.5 shrink-0" />
 
         {/* Refresh Backend Status */}
         <button
           onClick={checkBackend}
-          className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition shrink-0"
+          className="hidden sm:block p-1.5 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition shrink-0"
           title="Обновить связь с бэкендом"
         >
           <RefreshCw className="w-3.5 h-3.5 shrink-0" />

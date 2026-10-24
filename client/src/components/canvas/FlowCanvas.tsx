@@ -29,6 +29,7 @@ import { JumpNode } from './nodes/JumpNode';
 import { getLayoutedElements } from './layout';
 import { isEntryNode } from '../../store/graphEdits';
 import { LayoutGrid, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { useIsMobile } from '../../hooks/useIsMobile';
 
 const FlowCanvasInternal: React.FC = () => {
   const {
@@ -57,6 +58,7 @@ const FlowCanvasInternal: React.FC = () => {
     theme,
   } = useStudioStore();
   const { fitView, zoomIn, zoomOut, getIntersectingNodes, screenToFlowPosition } = useReactFlow();
+  const isMobile = useIsMobile();
 
   // Позиция узла до перетаскивания: если перенос в коде не удался, узел возвращается на место
   const dragOrigin = useRef<{ id: string; x: number; y: number } | null>(null);
@@ -243,12 +245,12 @@ const FlowCanvasInternal: React.FC = () => {
     <div className="relative w-full h-full bg-background overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
       {/* Method Dropdown Selector (Слайды 3, 4 ТЗ) */}
       {methodsList.length > 0 && (
-        <div className="absolute top-3 left-4 z-10 flex items-center gap-2 bg-surface/90 backdrop-blur border border-border px-2.5 py-1.5 rounded-lg shadow-xl">
-          <span className="text-[11px] font-semibold text-zinc-400">Метод:</span>
+        <div className="absolute top-3 left-3 sm:left-4 z-10 flex items-center gap-2 bg-surface/90 backdrop-blur border border-border px-2.5 py-1.5 rounded-lg shadow-xl max-w-[calc(100%-9rem)] sm:max-w-none">
+          <span className="text-[11px] font-semibold text-zinc-400 hidden sm:inline">Метод:</span>
           <select
             value={activeMethodId || ''}
             onChange={(e) => setActiveMethodId(e.target.value)}
-            className="bg-surface-elevated border border-border text-xs text-[#f37022] font-semibold rounded px-2 py-0.5 focus:outline-none focus:border-[#f37022] font-mono max-w-[280px] truncate"
+            className="min-w-0 w-full sm:w-auto bg-surface-elevated border border-border text-xs text-[#f37022] font-semibold rounded px-2 py-0.5 focus:outline-none focus:border-[#f37022] font-mono max-w-[280px] truncate"
           >
             {/* Без пустого варианта select показал бы первый метод, хотя холст пуст */}
             {!activeMethodId && (
@@ -267,7 +269,7 @@ const FlowCanvasInternal: React.FC = () => {
 
       {/* Debug Step Overlay (Слайд 4 ТЗ) */}
       {isDebugging && (
-        <div className="absolute top-14 left-4 z-10 flex items-center gap-2 bg-amber-950/90 backdrop-blur border border-amber-500/50 px-3 py-1.5 rounded-lg shadow-2xl">
+        <div className="absolute top-14 left-3 right-3 sm:left-4 sm:right-auto z-10 flex flex-wrap items-center gap-2 bg-amber-950/90 backdrop-blur border border-amber-500/50 px-3 py-1.5 rounded-lg shadow-2xl">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
           <span className="text-xs font-bold text-amber-300">
             Визуальный трассировщик CFG: шаг {debugStepIndex + 1} из {nodes.length}
@@ -297,7 +299,7 @@ const FlowCanvasInternal: React.FC = () => {
 
       {/* Статус синхронизации с бэкендом */}
       {syncStatus !== 'idle' && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 max-w-[50%]">
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 max-w-[90%] sm:max-w-[50%]">
           {syncStatus === 'syncing' && (
             <span className="inline-block px-2.5 py-1 text-xs rounded-full bg-blue-950/80 border border-blue-500/40 text-blue-300">
               Анализ…
@@ -326,7 +328,7 @@ const FlowCanvasInternal: React.FC = () => {
 
       {/* Ошибка правки графа: правка уже откачена, код не изменён */}
       {mutationError && (
-        <div className="absolute top-14 right-4 z-20 w-[min(420px,60%)] rounded-lg border border-rose-500/50 bg-rose-950/95 shadow-2xl">
+        <div className="absolute top-14 right-3 sm:right-4 z-20 w-[min(420px,calc(100%-1.5rem))] sm:w-[min(420px,60%)] rounded-lg border border-rose-500/50 bg-rose-950/95 shadow-2xl">
           <div className="flex items-start justify-between gap-2 px-3 pt-2">
             <span className="text-xs font-semibold text-rose-200">{mutationError.split('\n')[0]}</span>
             <button
@@ -346,16 +348,16 @@ const FlowCanvasInternal: React.FC = () => {
       )}
 
       {/* Top Controls Overlay */}
-      <div className="absolute top-3 right-4 z-10 flex items-center gap-1.5 bg-surface/90 backdrop-blur border border-border p-1 rounded-lg shadow-xl">
+      <div className="absolute top-3 right-3 sm:right-4 z-10 flex items-center gap-0.5 sm:gap-1.5 bg-surface/90 backdrop-blur border border-border p-1 rounded-lg shadow-xl">
         <button
           onClick={handleAutoLayout}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 rounded transition"
+          className="flex items-center gap-1.5 px-1.5 sm:px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 rounded transition"
           title="Автовыравнивание графа (Dagre)"
         >
           <LayoutGrid className="w-3.5 h-3.5 text-[#f37022]" />
-          <span>Автолейаут</span>
+          <span className="hidden sm:inline">Автолейаут</span>
         </button>
-        <div className="w-px h-4 bg-border mx-1" />
+        <div className="w-px h-4 bg-border mx-0.5 sm:mx-1" />
         <button
           onClick={() => zoomIn()}
           className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition"
@@ -406,7 +408,8 @@ const FlowCanvasInternal: React.FC = () => {
           size={1}
           color={theme === 'dark' ? '#2d2436' : '#d5cfc5'}
         />
-        <MiniMap
+        {/* На телефоне миникарта закрывает четверть экрана — прячем */}
+        {!isMobile && <MiniMap
           nodeStrokeWidth={3}
           nodeColor={(n) => {
             if (n.type === 'condition') return '#f59e0b';
@@ -417,7 +420,7 @@ const FlowCanvasInternal: React.FC = () => {
           }}
           className="!bg-surface/85 !border-border !rounded-lg !overflow-hidden shadow-2xl backdrop-blur-sm"
           maskColor={theme === 'dark' ? 'rgba(8, 4, 7, 0.75)' : 'rgba(247, 246, 244, 0.75)'}
-        />
+        />}
       </ReactFlow>
     </div>
   );

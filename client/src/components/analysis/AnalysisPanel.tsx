@@ -49,7 +49,7 @@ export const AnalysisPanel: React.FC = () => {
   }, [issues]);
 
   return (
-    <div className="w-80 h-full bg-surface border-l border-border flex flex-col overflow-hidden select-none">
+    <div className="w-full lg:w-80 lg:shrink-0 h-full bg-surface lg:border-l border-border flex flex-col overflow-hidden select-none">
       {/* Header Tabs */}
       <div className="flex items-center bg-surface-elevated border-b border-border h-9 shrink-0 px-2 gap-1">
         <button

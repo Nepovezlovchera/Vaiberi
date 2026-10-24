@@ -4,16 +4,20 @@ import { MonacoEditorPane } from '../editor/MonacoEditorPane';
 import { ConsolePane } from './ConsolePane';
 import { TestsPane } from './TestsPane';
 import { Code, Terminal, CheckCircle, Columns3, LayoutList } from 'lucide-react';
+import { useIsMobile } from '../../hooks/useIsMobile';
 
 export const BottomTabsPane: React.FC = () => {
-  const { bottomTab, setBottomTab, tests, bottomLayoutMode, setBottomLayoutMode } = useStudioStore();
+  const { bottomTab, setBottomTab, tests, bottomLayoutMode: storedLayoutMode, setBottomLayoutMode } = useStudioStore();
   const passedCount = tests.filter((t) => t.status === 'PASSED').length;
+  const isMobile = useIsMobile();
+  // На узком экране три колонки не помещаются — всегда режим вкладок
+  const bottomLayoutMode = isMobile ? 'tabs' : storedLayoutMode;
 
   return (
     <div className="w-full h-full flex flex-col bg-surface border-t border-border overflow-hidden">
       {/* Header bar with Tab switchers and 3-Column Split Mode switch (Слайд 4 ТЗ) */}
-      <div className="flex items-center justify-between px-2 bg-surface-elevated border-b border-border h-9 shrink-0">
-        <div className="flex items-center gap-1">
+      <div className="flex items-center justify-between gap-2 px-2 bg-surface-elevated border-b border-border h-9 shrink-0 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => {
               setBottomLayoutMode('tabs');
@@ -56,12 +60,15 @@ export const BottomTabsPane: React.FC = () => {
             }`}
           >
             <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Результат тестов ({passedCount}/{tests.length})</span>
+            <span className="whitespace-nowrap">
+              <span className="hidden sm:inline">Результат тестов </span>
+              <span className="sm:hidden">Тесты </span>({passedCount}/{tests.length})
+            </span>
           </button>
         </div>
 
         {/* View Mode Toggle: 3 Columns (Slide 4) vs Single Tab */}
-        <div className="flex items-center bg-surface border border-border rounded p-0.5 text-[11px]">
+        <div className="hidden lg:flex items-center bg-surface border border-border rounded p-0.5 text-[11px] shrink-0">
           <button
             onClick={() => setBottomLayoutMode('split3')}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded transition font-medium ${
@@ -95,17 +102,17 @@ export const BottomTabsPane: React.FC = () => {
         {bottomLayoutMode === 'split3' ? (
           <div className="w-full h-full flex divide-x divide-border overflow-hidden">
             {/* Column 1: Monaco Code Editor with Tabs (40%) */}
-            <div className="w-[42%] h-full overflow-hidden flex flex-col">
+            <div className="w-[42%] min-w-0 h-full overflow-hidden flex flex-col">
               <MonacoEditorPane />
             </div>
 
             {/* Column 2: Sandbox JVM Terminal (28%) */}
-            <div className="w-[28%] h-full overflow-hidden flex flex-col">
+            <div className="w-[28%] min-w-0 h-full overflow-hidden flex flex-col">
               <ConsolePane />
             </div>
 
             {/* Column 3: Quality Gate Test Suite (30%) */}
-            <div className="w-[30%] h-full overflow-hidden flex flex-col">
+            <div className="w-[30%] min-w-0 h-full overflow-hidden flex flex-col">
               <TestsPane />
             </div>
           </div>
