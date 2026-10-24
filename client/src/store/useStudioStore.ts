@@ -38,14 +38,16 @@ const updateFileCode = (items: FileItem[], fileId: string, code: string): FileIt
 const timeNow = () => new Date().toTimeString().split(' ')[0];
 
 interface StudioState {
-  // Файлы и пресеты
+  // Тема оформления
+  theme: 'dark' | 'light';
+  toggleTheme: () => void;
+
+  // Файлы
   files: FileItem[];
   activeFileId: string;
   code: string;
-  activePreset: 'demo' | 'monolith';
-  /** Исходный (до оптимизации) код импортированного файла; null — берётся код активного пресета. */
+  /** Исходный (до оптимизации) код импортированного файла; null — берётся исходный код. */
   baselineCode: string | null;
-  setPreset: (preset: 'demo' | 'monolith') => Promise<void>;
 
   // Сеть / Бэкенд
   isBackendOnline: boolean;
@@ -80,10 +82,6 @@ interface StudioState {
   openFileTab: (file: { id?: string; name: string; path: string; code: string }) => void;
   closeFileTab: (tabId: string) => void;
   setActiveTabId: (tabId: string) => void;
-
-  // Авто-демонстрация ТЗ за 60 секунд (Слайд 10 ТЗ)
-  isAutoDemoRunning: boolean;
-  runAutoDemo: () => Promise<void>;
 
   // Консоль и тесты
   consoleLogs: string[];
@@ -141,10 +139,22 @@ interface StudioState {
 }
 
 export const useStudioStore = create<StudioState>((set, get) => ({
+  theme: (typeof window !== 'undefined' && localStorage.getItem('jb-theme') === 'light' ? 'light' : 'dark') as 'dark' | 'light',
+  toggleTheme: () => {
+    const nextTheme = get().theme === 'dark' ? 'light' : 'dark';
+    set({ theme: nextTheme });
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('jb-theme', nextTheme);
+      if (nextTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    }
+  },
   files: INITIAL_FILES,
   activeFileId: 'file-main',
   code: INITIAL_JAVA_CODE,
-  activePreset: 'demo',
   baselineCode: null,
 
   isBackendOnline: false,
@@ -176,7 +186,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     },
   ],
   activeTabId: 'tab-main',
-  isAutoDemoRunning: false,
 
   consoleLogs: [
     `[${new Date().toTimeString().split(' ')[0]}] Java Blueprints Studio запущена.`,
@@ -256,43 +265,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set({ syncStatus: 'error', syncError: message });
       get().addConsoleLog(`[${timeNow()}] [ERROR] Разбор кода: ${message}`);
     }
-  },
-
-  setPreset: async (preset: 'demo' | 'monolith') => {
-    set({ baselineCode: null });
-    const isMono = preset === 'monolith';
-    const newCode = isMono ? SAMPLE_MONOLITH_CODE : INITIAL_JAVA_CODE;
-    const newTests = isMono ? SAMPLE_MONOLITH_TESTS : INITIAL_TESTS;
-    const now = new Date().toTimeString().split(' ')[0];
-
-    set((state) => ({
-      activePreset: preset,
-      code: newCode,
-      tests: newTests,
-      isOptimized: false,
-      files: state.files.map((root) => {
-        if (root.children) {
-          return {
-            ...root,
-            children: root.children.map((pkg) => {
-              if (pkg.name === 'com.example' && pkg.children) {
-                return {
-                  ...pkg,
-                  children: pkg.children.map((f) =>
-                    f.id === 'file-main' ? { ...f, code: newCode } : f
-                  ),
-                };
-              }
-              return pkg;
-            }),
-          };
-        }
-        return root;
-      }),
-    }));
-
-    get().addConsoleLog(`[${now}] Переключен пресет: ${isMono ? 'Эталонный монолит интернет-магазина (487 строк, Слайд 2 ТЗ)' : 'Метод processOrders (Слайд 4 ТЗ)'}`);
-    await get().refreshGraphAndAnalysis(newCode);
   },
 
   setActiveMethodId: async (methodId: string) => {
@@ -662,7 +634,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   runTests: async () => {
-    const { isBackendOnline, code, tests, activePreset, baselineCode } = get();
+    const { isBackendOnline, code, tests, baselineCode } = get();
     set({ isRunningTests: true, bottomTab: 'tests' });
     const now = new Date().toTimeString().split(' ')[0];
     get().addConsoleLog(`[${now}] Запуск набора тестов (${tests.length} сценариев) на Quality Gate...`);
@@ -680,7 +652,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           expectedStdout: t.expectedStdout,
         }));
 
-        const originalSource = baselineCode ?? (activePreset === 'monolith' ? SAMPLE_MONOLITH_CODE : INITIAL_JAVA_CODE);
+        const originalSource = baselineCode ?? INITIAL_JAVA_CODE;
 
         await ApiClient.streamVerify(
           {
@@ -869,8 +841,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   resetDefaultTests: () => {
-    const isMono = get().activePreset === 'monolith';
-    const defaults = isMono ? SAMPLE_MONOLITH_TESTS : INITIAL_TESTS;
+    const defaults = INITIAL_TESTS;
     set({ tests: defaults });
     get().addConsoleLog(`[${new Date().toTimeString().split(' ')[0]}] Набор тестов сброшен (${defaults.length} тестов)`);
   },
@@ -915,54 +886,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if (tab) {
       set({ activeTabId: tabId, code: tab.code });
       get().refreshGraphAndAnalysis(tab.code);
-    }
-  },
-
-  // Автономная демонстрация полного пути за 60 секунд (Слайд 10 ТЗ)
-  runAutoDemo: async () => {
-    if (get().isAutoDemoRunning) return;
-    set({ isAutoDemoRunning: true });
-    const now = () => new Date().toTimeString().split(' ')[0];
-    get().addConsoleLog(`[${now()}] 🎬 СТАРТ: Авто-демонстрация полного пути ТЗ за 60 секунд (Слайд 10)...`);
-
-    try {
-      // Шаг 1: Загрузка монолита
-      get().addConsoleLog(`[${now()}] [Шаг 1/6] Загрузка монолита интернет-магазина (487 строк) с дефектом O(n²)...`);
-      await get().setPreset('monolith');
-      await new Promise((r) => setTimeout(r, 1200));
-
-      // Шаг 2: Фокус на методе findDuplicateIds
-      get().addConsoleLog(`[${now()}] [Шаг 2/6] Локализация метода findDuplicateIds и построение CFG графа...`);
-      await get().setActiveMethodId('Main.findDuplicateIds');
-      await new Promise((r) => setTimeout(r, 1500));
-
-      // Шаг 3: Выделение узла O(n²)
-      const issueNode = get().nodes.find((n) => n.data.hasIssue);
-      if (issueNode) {
-        get().selectNode(issueNode.id);
-        get().addConsoleLog(`[${now()}] [Шаг 3/6] Подсвечен узел: «${issueNode.data.label}» (вложенный цикл O(n²))`);
-      }
-      await new Promise((r) => setTimeout(r, 1500));
-
-      // Шаг 4: Активация 3-колоночного режима Слайда 4
-      get().setBottomLayoutMode('split3');
-      get().addConsoleLog(`[${now()}] [Шаг 4/6] Включение 3-колоночного режима Слайда 4 ТЗ (Код | Консоль | Тесты)`);
-      await new Promise((r) => setTimeout(r, 1200));
-
-      // Шаг 5: Оптимизация и декомпозиция на 4 класса
-      get().addConsoleLog(`[${now()}] [Шаг 5/6] Авто-декомпозиция монолита на классы и оптимизация O(n²) -> O(n)...`);
-      await get().runOptimization();
-      await new Promise((r) => setTimeout(r, 1800));
-
-      // Шаг 6: Запуск верификации Quality Gate
-      get().addConsoleLog(`[${now()}] [Шаг 6/6] Запуск дифференциального тестирования Quality Gate (12 тестов)...`);
-      await get().runTests();
-
-      get().addConsoleLog(`[${now()}] 🏆 ФИНИШ: Демонстрационный цикл завершен! Все 12 тестов пройдены, ускорение 5.2x подтверждено ✔`);
-    } catch (err: any) {
-      get().addConsoleLog(`[ERROR] Ошибка демо: ${err.message}`);
-    } finally {
-      set({ isAutoDemoRunning: false });
     }
   },
 }));

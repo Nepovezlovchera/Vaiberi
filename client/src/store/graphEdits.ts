@@ -147,6 +147,10 @@ export function paletteSnippet(type: string, code: string): string | null {
       return 'System.out.println();';
     case 'return':
       return 'return;';
+    case 'method': {
+      const m = freshName(code, 'customMethod');
+      return `public void ${m}() {\n}`;
+    }
     default:
       return null;
   }

@@ -1,5 +1,6 @@
 services:
   server:
+    image: javablueprints-server:latest
     build: ./server
     ports:
       - "8080:8080"
@@ -20,6 +21,7 @@ services:
       retries: 10
 
   client:
+    image: javablueprints-client:latest
     build: ./client
     ports:
       - "3000:80"

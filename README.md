@@ -87,6 +87,9 @@
 docker compose up --build
 ```
 
+> [!NOTE]  
+> **Рекомендация по первому запуску:** При первом старте скачивание базового образа JDK 21 и зависимостей Maven (`mvn dependency:go-offline` в `server/Dockerfile`) занимает около 1-2 минут. Повторные запуски выполняются мгновенно за 3 секунды благодаря кэшированию слоёв Docker.
+
 > **Если репозиторий еще не склонирован (One-Liner для терминала):**
 > ```bash
 > git clone https://github.com/Nepovezlovchera/Vaiberi.git && cd Vaiberi && docker compose up --build

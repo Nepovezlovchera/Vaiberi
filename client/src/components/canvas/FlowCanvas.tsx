@@ -269,7 +269,7 @@ const FlowCanvasInternal: React.FC = () => {
         <div className="absolute top-14 left-4 z-10 flex items-center gap-2 bg-amber-950/90 backdrop-blur border border-amber-500/50 px-3 py-1.5 rounded-lg shadow-2xl">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
           <span className="text-xs font-bold text-amber-300">
-            Дебаг AST: шаг {debugStepIndex + 1} из {nodes.length}
+            Визуальный трассировщик CFG: шаг {debugStepIndex + 1} из {nodes.length}
           </span>
           <button
             onClick={stepDebug}
@@ -400,7 +400,6 @@ const FlowCanvasInternal: React.FC = () => {
         }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#27272a" />
-        <Controls showInteractive={false} className="!bg-surface !border-border !fill-zinc-400 shadow-xl" />
         <MiniMap
           nodeStrokeWidth={3}
           nodeColor={(n) => {

@@ -24,6 +24,52 @@
   background: #3f3f46;
 }
 
+/* Utility to hide scrollbar for responsive toolbars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Light Mode Overrides when html has not .dark */
+html:not(.dark) {
+  color-scheme: light;
+}
+html:not(.dark) body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+html:not(.dark) .bg-background {
+  background-color: #f1f5f9;
+}
+html:not(.dark) .bg-surface {
+  background-color: #ffffff;
+}
+html:not(.dark) .border-border,
+html:not(.dark) * {
+  border-color: #e2e8f0;
+}
+html:not(.dark) .bg-zinc-900 {
+  background-color: #f8fafc !important;
+}
+html:not(.dark) .bg-zinc-800 {
+  background-color: #e2e8f0 !important;
+}
+html:not(.dark) .text-zinc-100 {
+  color: #0f172a !important;
+}
+html:not(.dark) .text-zinc-200 {
+  color: #1e293b !important;
+}
+html:not(.dark) .text-zinc-300 {
+  color: #334155 !important;
+}
+html:not(.dark) .text-zinc-400 {
+  color: #64748b !important;
+}
+
 /* React Flow custom dark background and overrides */
 .react-flow__pane {
   cursor: grab;
@@ -46,6 +92,46 @@
 .react-flow__edge-path {
   stroke-width: 2;
   transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+/* 5. Устранение белой кнопки смены масштаба на рабочей зоне (справа снизу) */
+.react-flow__controls {
+  border: 1px solid #27272a !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
+}
+.react-flow__controls button {
+  background: #121215 !important;
+  border-bottom: 1px solid #27272a !important;
+  fill: #a1a1aa !important;
+  color: #a1a1aa !important;
+}
+.react-flow__controls button:hover {
+  background: #27272a !important;
+  fill: #ffffff !important;
+}
+
+/* 6. Изменение цветовой палитры кнопки React Flow (справа снизу) */
+.react-flow__attribution {
+  background: rgba(18, 18, 21, 0.85) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border: 1px solid #27272a !important;
+  border-radius: 6px !important;
+  padding: 2px 8px !important;
+  font-family: inherit !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+.react-flow__attribution a {
+  color: #71717a !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  text-decoration: none !important;
+  transition: color 0.2s ease !important;
+}
+.react-flow__attribution a:hover {
+  color: #60a5fa !important;
 }
 
 /* Monaco decoration line */
