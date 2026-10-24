@@ -12,3 +12,4 @@ llm-cache/
 .agents/
 .agent/
 *.tsbuildinfo
+verification_report.json
