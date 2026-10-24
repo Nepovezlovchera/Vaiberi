@@ -19,7 +19,7 @@ export const TopBar: React.FC = () => {
     isCompiling,
     isRunningTests,
     isOptimized,
-    setCode,
+    importProject,
     addConsoleLog,
     isBackendOnline,
     checkBackend,
@@ -28,7 +28,6 @@ export const TopBar: React.FC = () => {
     stopDebug,
     activePreset,
     setPreset,
-    refreshGraphAndAnalysis,
     isAutoDemoRunning,
     runAutoDemo,
   } = useStudioStore();
@@ -44,30 +43,27 @@ export const TopBar: React.FC = () => {
 
   const MAX_JAVA_FILE_SIZE = 2 * 1024 * 1024; // 2 MB limit (Client-side DoS prevention)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > MAX_JAVA_FILE_SIZE) {
-        addConsoleLog(`[SECURITY WARNING] Файл «${file.name}» превышает лимит 2 МБ.`);
-        alert(`Файл «${file.name}» превышает допустимый размер (максимум 2 МБ).`);
-        return;
-      }
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        if (content) {
-          useStudioStore.setState({ baselineCode: content });
-          setCode(content);
-          addConsoleLog(`[${new Date().toTimeString().split(' ')[0]}] Загружен файл ${safeName} (${content.split('\n').length} строк)`);
-          refreshGraphAndAnalysis(content);
-        }
-      };
-      reader.readAsText(file);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = Array.from(e.target.files || []).filter((f) => f.name.endsWith('.java'));
+    const input = e.target;
+    const tooBig = list.find((f) => f.size > MAX_JAVA_FILE_SIZE);
+    if (tooBig) {
+      addConsoleLog(`[SECURITY WARNING] Файл «${tooBig.name}» превышает лимит 2 МБ.`);
+      alert(`Файл «${tooBig.name}» превышает допустимый размер (максимум 2 МБ).`);
+    } else if (list.length > 0) {
+      const loaded = await Promise.all(
+        list.map(
+          (f) =>
+            new Promise<{ name: string; content: string }>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve({ name: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name, content: String(reader.result || '') });
+              reader.readAsText(f);
+            })
+        )
+      );
+      await importProject(loaded.filter((f) => f.content));
     }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    input.value = '';
   };
 
   const handleExport = () => {
@@ -84,7 +80,7 @@ export const TopBar: React.FC = () => {
   return (
     <header className="h-12 w-full bg-surface border-b border-border flex items-center justify-between px-3 shrink-0 select-none">
       {/* Hidden File Input */}
-      <input ref={fileInputRef} type="file" accept=".java" onChange={handleFileChange} className="hidden" />
+      <input ref={fileInputRef} type="file" accept=".java" multiple onChange={handleFileChange} className="hidden" />
 
       {/* Brand / Logo */}
       <div className="flex items-center gap-3">

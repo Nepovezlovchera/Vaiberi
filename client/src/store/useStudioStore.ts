@@ -134,6 +134,8 @@ interface StudioState {
   updateTestCase: (id: string, updates: Partial<TestCaseResult>) => void;
   removeTestCase: (id: string) => void;
   loadTestFiles: (files: { name: string; content: string }[]) => void;
+  /** «Импорт Java»: заменяет проект в дереве загруженными файлами; главным становится файл с main(). */
+  importProject: (files: { name: string; content: string }[]) => Promise<void>;
   resetDefaultTests: () => void;
   addConsoleLog: (msg: string) => void;
 }
@@ -313,7 +315,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     };
     const file = findFile(get().files);
     if (file && file.type === 'file' && file.code) {
-      set({ activeFileId: fileId, code: file.code });
+      set({
+        activeFileId: fileId,
+        code: file.code,
+        ...(get().baselineCode !== null ? { baselineCode: file.code } : {}),
+      });
       get().refreshGraphAndAnalysis(file.code);
     }
   },
@@ -801,6 +807,51 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if (test) {
       get().addConsoleLog(`[${new Date().toTimeString().split(' ')[0]}] Удален тест «${test.name}»`);
     }
+  },
+
+  importProject: async (imported) => {
+    if (imported.length === 0) return;
+    // Дерево: src/<папки из пути>/<файл>
+    const root: FileItem = { id: 'imp-src', name: 'src', path: 'src', type: 'directory', children: [] };
+    const all: FileItem[] = [];
+    imported.forEach((f, idx) => {
+      const parts = f.name.replace(/\\/g, '/').split('/').filter(Boolean);
+      const fileName = parts.pop() || `File${idx}.java`;
+      let dir = root;
+      for (const part of parts) {
+        const dirPath = `${dir.path}/${part}`;
+        let next = dir.children!.find((c) => c.type === 'directory' && c.path === dirPath);
+        if (!next) {
+          next = { id: `imp-dir-${dirPath}`, name: part, path: dirPath, type: 'directory', children: [] };
+          dir.children!.push(next);
+        }
+        dir = next;
+      }
+      const item: FileItem = {
+        id: `imp-file-${idx}`,
+        name: fileName,
+        path: `${dir.path}/${fileName}`,
+        type: 'file',
+        code: f.content,
+      };
+      dir.children!.push(item);
+      all.push(item);
+    });
+    const main = all.find((f) => /static\s+void\s+main\s*\(/.test(f.code || '')) || all[0];
+    set({
+      files: [root],
+      activeFileId: main.id,
+      code: main.code || '',
+      baselineCode: main.code || '',
+      isOptimized: false,
+      tests: [],
+      openTabs: [{ id: `tab-${main.id}`, name: main.name, path: main.path, code: main.code || '' }],
+      activeTabId: `tab-${main.id}`,
+    });
+    get().addConsoleLog(
+      `[${timeNow()}] Импортирован проект: файлов ${all.length}, главный — ${main.name} (${(main.code || '').split('\n').length} строк)`
+    );
+    await get().refreshGraphAndAnalysis(main.code || '');
   },
 
   loadTestFiles: (files: { name: string; content: string }[]) => {
