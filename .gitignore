@@ -9,3 +9,6 @@ dist/
 .DS_Store
 tmp/
 llm-cache/
+.agents/
+.agent/
+*.tsbuildinfo

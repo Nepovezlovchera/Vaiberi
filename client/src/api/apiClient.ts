@@ -92,7 +92,7 @@ export interface TestCaseDto {
 export interface VerifyRequestDto {
   original: ProjectFileDto[];
   modified: ProjectFileDto[];
-  mainClass: string;
+  mainClass?: string;
   tests: TestCaseDto[];
   mode: 'EXACT' | 'SORTED_LINES' | 'MASKED';
 }
@@ -103,12 +103,18 @@ export const ApiClient = {
   /** Проверка доступности бэкенда */
   async checkHealth(): Promise<boolean> {
     try {
-      const res = await fetch(`${API_BASE}/analysis`, {
+      const res = await fetch(`${API_BASE}/health`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      }).catch(() => null);
+      if (res && res.ok) return true;
+
+      const fallbackRes = await fetch(`${API_BASE}/analysis`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: [] }),
       });
-      return res.status === 200 || res.status === 422 || res.status === 400;
+      return fallbackRes.status === 200 || fallbackRes.status === 422 || fallbackRes.status === 400;
     } catch {
       return false;
     }

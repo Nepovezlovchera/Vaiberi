@@ -115,11 +115,18 @@ npm run dev
 
 ### 🛠️ Локальный запуск бэкенда без Docker (для разработки)
 
+С использованием встроенного **Maven Wrapper** (не требует предварительно установленного Maven):
 ```bash
 cd server
 ./mvnw clean spring-boot:run
 ```
-*(В Windows: `.\mvnw.cmd clean spring-boot:run`)*
+*(В Windows PowerShell/CMD: `.\mvnw.cmd clean spring-boot:run`)*
+
+Либо со стандартным Maven (если установлен в системе):
+```bash
+cd server
+mvn clean spring-boot:run
+```
 
 ---
 
@@ -140,6 +147,9 @@ Vaiberi/
 │   ├── package.json
 │   └── vite.config.ts
 ├── server/                     # Бэкенд (Spring Boot 3, Java 21)
+│   ├── mvnw                    # Maven Wrapper (Linux/macOS)
+│   ├── mvnw.cmd                # Maven Wrapper (Windows)
+│   ├── .mvn/wrapper/           # Конфигурация Wrapper (maven-wrapper.properties)
 │   ├── src/main/java/com/axenix/blueprints/
 │   │   ├── controller/         # REST и SSE контроллеры
 │   │   ├── model/              # Модели AST Graph, Issues, VerificationReport
