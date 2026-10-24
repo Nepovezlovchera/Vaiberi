@@ -30,7 +30,8 @@ public class ProcessRunner {
         this.heap = heap;
     }
 
-    public RunResult run(Path classesDir, String mainClass, String stdin) throws IOException, InterruptedException {
+    /** Команда запуска пользовательского класса в отдельной JVM (общая для пакетного и интерактивного запуска). */
+    public ProcessBuilder newProcessBuilder(Path classesDir, String mainClass) {
         List<String> cmd = new ArrayList<>();
         cmd.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
         cmd.add("-Xmx" + heap);
@@ -54,6 +55,11 @@ public class ProcessRunner {
         pb.environment().remove("JAVA_TOOL_OPTIONS");
         pb.environment().remove("_JAVA_OPTIONS");
         pb.environment().remove("JDK_JAVA_OPTIONS");
+        return pb;
+    }
+
+    public RunResult run(Path classesDir, String mainClass, String stdin) throws IOException, InterruptedException {
+        ProcessBuilder pb = newProcessBuilder(classesDir, mainClass);
 
         long t0 = System.nanoTime();
         Process p = pb.start();

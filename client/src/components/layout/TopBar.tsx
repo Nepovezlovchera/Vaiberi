@@ -18,7 +18,6 @@ export const TopBar: React.FC = () => {
     runOptimization,
     runTests,
     runCodeInConsole,
-    consoleStdin,
     isCompiling,
     isRunningTests,
     isOptimized,
@@ -163,8 +162,8 @@ export const TopBar: React.FC = () => {
         </button>
 
         <button
-          onClick={() => runCodeInConsole(consoleStdin && !consoleStdin.endsWith('\n') ? consoleStdin + '\n' : consoleStdin)}
-          title="Скомпилировать и запустить программу; вывод — в терминале JVM (ввод берётся из поля stdin терминала)"
+          onClick={() => runCodeInConsole()}
+          title="Скомпилировать и запустить программу; вывод — в терминале JVM (ввод — прямо в терминале, когда программа его ждёт)"
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-600/40 transition shrink-0 whitespace-nowrap"
         >
           <Play className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
