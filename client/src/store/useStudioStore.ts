@@ -966,3 +966,62 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
   },
 }));
+
+// ---------------------------------------------------------------------------
+// Сохранение импортированного проекта между перезагрузками страницы (localStorage).
+// Пресеты не сохраняются: при выборе пресета сохранённый проект удаляется.
+// ---------------------------------------------------------------------------
+const PROJECT_STORAGE_KEY = 'java-blueprints.imported-project.v1';
+
+const restoreSavedProject = () => {
+  try {
+    const raw = localStorage.getItem(PROJECT_STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved.code !== 'string' || !Array.isArray(saved.files)) return;
+    useStudioStore.setState({
+      files: saved.files,
+      activeFileId: saved.activeFileId,
+      code: saved.code,
+      baselineCode: typeof saved.baselineCode === 'string' ? saved.baselineCode : saved.code,
+      isOptimized: !!saved.isOptimized,
+      tests: Array.isArray(saved.tests) ? saved.tests : [],
+      openTabs: Array.isArray(saved.openTabs) ? saved.openTabs : useStudioStore.getState().openTabs,
+      activeTabId: saved.activeTabId ?? useStudioStore.getState().activeTabId,
+    });
+  } catch {
+    /* повреждённые данные или недоступный localStorage — стартуем с пресета */
+  }
+};
+
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+const persistProject = () => {
+  const s = useStudioStore.getState();
+  try {
+    if (s.baselineCode === null) {
+      localStorage.removeItem(PROJECT_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(
+      PROJECT_STORAGE_KEY,
+      JSON.stringify({
+        files: s.files,
+        activeFileId: s.activeFileId,
+        code: s.code,
+        baselineCode: s.baselineCode,
+        isOptimized: s.isOptimized,
+        openTabs: s.openTabs,
+        activeTabId: s.activeTabId,
+        tests: s.tests.map((t) => ({ ...t, status: 'PENDING', durationMs: 0, errorDetails: undefined })),
+      })
+    );
+  } catch {
+    /* переполнение квоты или запрет хранилища — сохранение просто пропускается */
+  }
+};
+
+restoreSavedProject();
+useStudioStore.subscribe(() => {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(persistProject, 400);
+});
