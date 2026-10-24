@@ -358,16 +358,16 @@ export const INITIAL_EDGES: Edge[] = [
 ];
 
 export const INITIAL_TESTS: TestCaseResult[] = [
-  { id: 't1', name: 'testEmptyList', status: 'PASSED', durationMs: 12 },
-  { id: 't2', name: 'testSingleOrder', status: 'PASSED', durationMs: 8 },
-  { id: 't3', name: 'testInvalidOrder', status: 'PASSED', durationMs: 15 },
-  { id: 't4', name: 'testLargeDataset', status: 'PASSED', durationMs: 1240 },
-  { id: 't5', name: 'testNullHandling', status: 'PASSED', durationMs: 4 },
-  { id: 't6', name: 'testDuplicateIds', status: 'PASSED', durationMs: 22 },
-  { id: 't7', name: 'testZeroAmount', status: 'PASSED', durationMs: 6 },
-  { id: 't8', name: 'testCyrillicStrings', status: 'PASSED', durationMs: 11 },
-  { id: 't9', name: 'testBoundaryValues', status: 'PASSED', durationMs: 9 },
-  { id: 't10', name: 'testSortingIntegrity', status: 'PASSED', durationMs: 18 },
-  { id: 't11', name: 'testMemoryFootprint', status: 'PASSED', durationMs: 34 },
-  { id: 't12', name: 'testRegressionMatch', status: 'PASSED', durationMs: 42 },
+  { id: 't1', name: 'testEmptyList (N=0)', stdin: '0\n', status: 'PASSED', durationMs: 12 },
+  { id: 't2', name: 'testSingleOrder (N=1)', stdin: '1\n7 Ольга 10.50\n', status: 'PASSED', durationMs: 8 },
+  { id: 't3', name: 'testDuplicates (N=4)', stdin: '4\n1 Иван 10\n1 Иван 10\n2 Анна 5\n2 Анна 5\n', status: 'PASSED', durationMs: 15 },
+  { id: 't4', name: 'testLargeDataset (N=1000)', stdin: '1000\n', status: 'PASSED', durationMs: 1240 },
+  { id: 't5', name: 'testNullHandling', stdin: '0\n', status: 'PASSED', durationMs: 4 },
+  { id: 't6', name: 'testDuplicateIds', stdin: '3\n100 Иван 50\n100 Иван 50\n101 Ольга 30\n', status: 'PASSED', durationMs: 22 },
+  { id: 't7', name: 'testZeroAmount', stdin: '1\n5 Промо 0.0\n', status: 'PASSED', durationMs: 6 },
+  { id: 't8', name: 'testCyrillicStrings', stdin: '2\n1 Алексей 12.5\n2 Екатерина 88.0\n', status: 'PASSED', durationMs: 11 },
+  { id: 't9', name: 'testBoundaryValues', stdin: '2\n1 Мин 0.01\n2 Макс 999999.99\n', status: 'PASSED', durationMs: 9 },
+  { id: 't10', name: 'testSortingIntegrity', stdin: '3\n3 Борис 15\n1 Андрей 10\n2 Влад 25\n', status: 'PASSED', durationMs: 18 },
+  { id: 't11', name: 'testMemoryFootprint', stdin: '500\n', status: 'PASSED', durationMs: 34 },
+  { id: 't12', name: 'testRegressionMatch', stdin: '4\n1 A 10\n2 B 20\n3 C 30\n4 D 40\n', status: 'PASSED', durationMs: 42 },
 ];

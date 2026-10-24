@@ -61,11 +61,16 @@ export interface ComplexityMetrics {
 export interface TestCaseResult {
   id: string;
   name: string;
-  status: 'PASSED' | 'FAILED' | 'RUNNING';
+  stdin: string;
+  expectedStdout?: string;
+  status: 'PASSED' | 'FAILED' | 'RUNNING' | 'PENDING';
   durationMs: number;
   expectedOutput?: string;
   actualOutput?: string;
+  errorDetails?: string;
 }
+
+export type TestCaseItem = TestCaseResult;
 
 export interface VerificationReport {
   allPassed: boolean;
@@ -76,4 +81,6 @@ export interface VerificationReport {
   complexityBefore: string;
   complexityAfter: string;
   testResults: TestCaseResult[];
+  passed?: number;
+  total?: number;
 }
