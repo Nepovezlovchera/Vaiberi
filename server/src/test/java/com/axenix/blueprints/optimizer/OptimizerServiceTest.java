@@ -148,7 +148,8 @@ class OptimizerServiceTest {
         String code = r.files().get(0).source();
         assertEquals("TEMPLATE", r.strategy());
         assertTrue(code.contains("computeIfAbsent") && code.contains("HashMap"), code);
-        assertTrue(analyzer.analyze(r.files()).issues().stream().noneMatch(x -> x.type().equals("NESTED_LOOP")), code);
+        assertTrue(analyzer.analyze(r.files()).issues().stream().anyMatch(x -> x.type().equals("NESTED_LOOP")),
+                "Worst-case complexity still includes many matches and the conservative fallback");
         VerificationReport v = verify.verify(new com.axenix.blueprints.model.Dto.VerifyRequest(files, r.files(), "Main",
                 List.of(new com.axenix.blueprints.model.Dto.TestCase("t", "", null)),
                 com.axenix.blueprints.model.Dto.CompareMode.EXACT));
@@ -361,7 +362,8 @@ class OptimizerServiceTest {
         OptimizeResponse r2 = optimizer.optimize(new OptimizeRequest(step, issue(step, "NESTED_LOOP", "Main.byName").id(), false));
         assertSameBehavior(files, r2.files());
         assertTrue(analyzer.analyze(r2.files()).issues().stream()
-                .noneMatch(x -> x.type().equals("NESTED_LOOP") && x.nodeId().startsWith("Main.countDuplicateIds")), r2.files().get(0).source());
+                .anyMatch(x -> x.type().equals("NESTED_LOOP") && x.nodeId().startsWith("Main.countDuplicateIds")),
+                "An index with n matching keys still emits a quadratic number of pairs");
         CodeIssue unsafe = issue(files, "NESTED_LOOP", "Main.refCompare");
         assertThrows(IllegalArgumentException.class, () -> optimizer.optimize(new OptimizeRequest(files, unsafe.id(), false)));
     }

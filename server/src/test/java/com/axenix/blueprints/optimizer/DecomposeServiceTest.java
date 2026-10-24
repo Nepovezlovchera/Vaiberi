@@ -54,6 +54,16 @@ class DecomposeServiceTest {
         assertEquals(files, r.files());
     }
 
+    @Test void dependentStaticFieldStaysWithOwnerAndQualifiedNestedTypeIsRewritten() {
+        var files = List.of(new ProjectFile("Main.java", "public class Main { static int factor=3; static class Item {} static int count(int n) { return n*factor; } public static void main(String[] a) { Main.Item i=new Main.Item(); System.out.print(count(2)); } }"));
+        var result = service.decompose(new DecomposeRequest(files, null, true, true));
+        assertTrue(result.files().get(0).source().contains("count(int n)"));
+        assertFalse(result.files().get(0).source().contains("Main.Item"));
+        var report = verify.verify(new com.axenix.blueprints.model.Dto.VerifyRequest(files, result.files(), null,
+                List.of(new com.axenix.blueprints.model.Dto.TestCase("t", "", "6")), com.axenix.blueprints.model.Dto.CompareMode.EXACT));
+        assertTrue(report.allPassed(), report.compileOutput() + report.testResults());
+    }
+
     @Test
     void doesNotOverwriteExistingFiles() {
         List<ProjectFile> files = List.of(

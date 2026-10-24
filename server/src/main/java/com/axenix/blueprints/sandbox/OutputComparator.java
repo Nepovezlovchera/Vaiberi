@@ -32,16 +32,16 @@ public final class OutputComparator {
             Arrays.sort(lines);
             s = String.join("\n", lines);
         }
-        return s.stripTrailing();
+        return s;
     }
 
     /** Из stderr убираются строки стека (номера строк меняются при рефакторинге), остаётся тип и сообщение исключения. */
     public static String stripStackTrace(String stderr) {
         if (stderr == null) return "";
         List<String> keep = new ArrayList<>();
-        for (String line : stderr.replace("\r\n", "\n").split("\n")) {
+        for (String line : stderr.replace("\r\n", "\n").split("\n", -1)) {
             String t = line.stripLeading();
-            if (t.startsWith("at ") || t.startsWith("... ")) continue;
+            if (t.matches("at [\\w$./<>]+\\([^)]*\\)") || t.matches("\\.\\.\\. \\d+ more")) continue;
             keep.add(line);
         }
         return String.join("\n", keep);

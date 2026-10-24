@@ -3,7 +3,6 @@ import { Node, Edge } from '@xyflow/react';
 import { FileItem, CodeIssue, ComplexityMetrics, TestCaseResult, MethodInfo, SyncStatus, FileTab } from '../types/studio';
 import {
   INITIAL_JAVA_CODE,
-  OPTIMIZED_JAVA_CODE,
   INITIAL_FILES,
   INITIAL_ISSUES,
   INITIAL_METRICS,
@@ -11,8 +10,7 @@ import {
   INITIAL_EDGES,
   INITIAL_TESTS,
 } from './mockData';
-import { SAMPLE_MONOLITH_CODE, SAMPLE_MONOLITH_TESTS } from './monolithData';
-import { ApiClient, ApiError, MethodGraphResponseDto, MutateRequestDto } from '../api/apiClient';
+import { ApiClient, ApiError, MethodGraphResponseDto, MutateRequestDto, ProjectFileDto } from '../api/apiClient';
 import { connectPlacement, isEntryNode, moveAfter, moveInside, nodeIdAt, paletteSnippet, placeAfter, placeInside } from './graphEdits';
 import { methodToFlow, methodOfNode, pickInitialMethod, toIssues, toMethodInfos, toMetrics } from './graphMapper';
 
@@ -25,6 +23,7 @@ let graphCache: MethodGraphResponseDto[] = [];
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
 // Номер последнего запроса: ответ на устаревший запрос (код уже поменялся) отбрасывается
 let syncSeq = 0;
+let documentRevision = 0;
 
 const updateFileCode = (items: FileItem[], fileId: string, code: string): FileItem[] =>
   items.map((item) =>
@@ -34,6 +33,58 @@ const updateFileCode = (items: FileItem[], fileId: string, code: string): FileIt
         ? { ...item, children: updateFileCode(item.children, fileId, code) }
         : item
   );
+
+const collectFiles = (items: FileItem[]): FileItem[] =>
+  items.flatMap((item) => item.type === 'file' ? [item] : collectFiles(item.children || []));
+
+const apiPath = (path: string) => path.replace(/\\/g, '/').replace(/^src\//, '');
+
+const projectFiles = (items: FileItem[]): ProjectFileDto[] =>
+  collectFiles(items).map((file) => ({ path: apiPath(file.path), source: file.code || '' }));
+
+const fileByPath = (items: FileItem[], path: string): FileItem | undefined =>
+  collectFiles(items).find((file) => apiPath(file.path) === apiPath(path) || file.name === path);
+
+const sourceCodeForFile = (items: FileItem[], id: string) => collectFiles(items).find((file) => file.id === id)?.code;
+
+const updateFileCodes = (items: FileItem[], sources: ProjectFileDto[]): FileItem[] =>
+  items.map((item) => {
+    if (item.type === 'file') {
+      const source = sources.find((f) => apiPath(f.path) === apiPath(item.path) || f.path === item.name);
+      return source ? { ...item, code: source.source, hasIssues: false } : item;
+    }
+    return item.children ? { ...item, children: updateFileCodes(item.children, sources) } : item;
+  });
+
+const fileItemsFromDtos = (sources: ProjectFileDto[]): { tree: FileItem[]; files: FileItem[] } => {
+  const root: FileItem = { id: 'project-src', name: 'src', path: 'src', type: 'directory', children: [] };
+  const flat: FileItem[] = [];
+  sources.forEach((source, index) => {
+    const parts = source.path.replace(/\\/g, '/').split('/').filter(Boolean);
+    const name = parts.pop() || `File${index}.java`;
+    let dir = root;
+    parts.forEach((part) => {
+      const path = `${dir.path}/${part}`;
+      let next = dir.children!.find((child) => child.type === 'directory' && child.path === path);
+      if (!next) {
+        next = { id: `project-dir-${path}`, name: part, path, type: 'directory', children: [] };
+        dir.children!.push(next);
+      }
+      dir = next;
+    });
+    const item: FileItem = { id: `project-file-${index}-${name}`, name, path: `${dir.path}/${name}`, type: 'file', code: source.source };
+    dir.children!.push(item);
+    flat.push(item);
+  });
+  return { tree: [root], files: flat };
+};
+
+const pendingTests = (tests: TestCaseResult[]) => tests.map((test) => ({
+  ...test,
+  status: 'PENDING' as const,
+  durationMs: 0,
+  errorDetails: undefined,
+}));
 
 const timeNow = () => new Date().toTimeString().split(' ')[0];
 
@@ -48,6 +99,8 @@ interface StudioState {
   code: string;
   /** Исходный (до оптимизации) код импортированного файла; null — берётся исходный код. */
   baselineCode: string | null;
+  /** Full original project used by the Quality Gate, including all imported files. */
+  baselineFiles: ProjectFileDto[] | null;
 
   // Сеть / Бэкенд
   isBackendOnline: boolean;
@@ -156,6 +209,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   activeFileId: 'file-main',
   code: INITIAL_JAVA_CODE,
   baselineCode: null,
+  baselineFiles: projectFiles(INITIAL_FILES),
 
   isBackendOnline: false,
 
@@ -223,8 +277,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set({ syncStatus: 'offline' });
       return;
     }
-    const currentCode = sourceCode ?? get().code;
-    const files = [{ path: 'Main.java', source: currentCode }];
+    const files = projectFiles(get().files);
     const seq = ++syncSeq;
     set({ syncStatus: 'syncing', syncError: null });
     try {
@@ -251,7 +304,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         selectedNodeId: keepSelection ? state.selectedNodeId : null,
         issues,
         selectedIssueId: issues.some((i) => i.id === state.selectedIssueId) ? state.selectedIssueId : null,
-        metrics: toMetrics(analysis.metrics),
+        metrics: { ...toMetrics(analysis.metrics), speedup: state.isOptimized ? state.metrics.speedup : '—' },
         syncStatus: 'ok',
         analysisLoaded: true,
       }));
@@ -272,6 +325,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     // Нет в кэше (бэкенд ещё не отвечал) — строим заново
     if (!graph) return get().refreshGraphAndAnalysis(get().code, methodId);
     const { nodes, edges } = methodToFlow(graph, get().issues);
+    const file = fileByPath(get().files, graph.fileName);
+    if (file) get().openFileTab({ ...file, code: file.code || '' });
     set({ activeMethodId: methodId, nodes, edges, selectedNodeId: null, activeLineRange: null });
   },
 
@@ -286,19 +341,21 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       }
     };
     const file = findFile(get().files);
-    if (file && file.type === 'file' && file.code) {
-      set({
-        activeFileId: fileId,
-        code: file.code,
-        ...(get().baselineCode !== null ? { baselineCode: file.code } : {}),
-      });
-      get().refreshGraphAndAnalysis(file.code);
+    if (file && file.type === 'file' && file.code !== undefined) {
+      get().openFileTab({ ...file, code: file.code });
     }
   },
 
   setCode: (code: string) => {
     if (code === get().code) return;
-    set({ code });
+    documentRevision++;
+    set((state) => ({
+      code,
+      files: updateFileCode(state.files, state.activeFileId, code),
+      openTabs: state.openTabs.map((tab) => tab.id === state.activeTabId ? { ...tab, code } : tab),
+      isOptimized: false,
+      tests: pendingTests(state.tests),
+    }));
     if (!get().isBackendOnline) return;
     // Ответ на запрос, отправленный до этой правки, уже устарел
     syncSeq++;
@@ -355,7 +412,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   dismissMutationError: () => set({ mutationError: null }),
 
   applyMutation: async (req, describe) => {
-    const { isBackendOnline, isMutating, code, activeMethodId, nodes, edges } = get();
+    const { isBackendOnline, isMutating, activeMethodId, nodes, edges } = get();
     if (isMutating) return false;
     if (!isBackendOnline) {
       set({ mutationError: 'Правки графа выполняет бэкенд, а он недоступен. Граф не изменён.', nodes: [...nodes] });
@@ -363,24 +420,33 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
     // Снимок для отката: граф до правки (в том числе позиции узлов до перетаскивания)
     const snapshot = { nodes, edges };
+    const revision = documentRevision;
     // Отложенная пересборка по старому коду больше не нужна
     clearTimeout(syncTimer);
     syncSeq++;
     set({ isMutating: true, mutationError: null });
     get().addConsoleLog(`[${timeNow()}] POST /api/graph/mutate: ${describe}...`);
     try {
-      const res = await ApiClient.mutateGraph({ files: [{ path: 'Main.java', source: code }], ...req });
-      const newSource = res.files?.[0]?.source;
-      if (newSource === undefined) throw new Error('Сервер не вернул код');
+      const res = await ApiClient.mutateGraph({ files: projectFiles(get().files), ...req });
+      if (revision !== documentRevision) {
+        set({ isMutating: false, mutationError: 'Код изменился во время запроса. Устаревший результат правки отброшен.' });
+        return false;
+      }
+      if (!res.files?.length) throw new Error('Сервер не вернул файлы');
+      const nextFiles = updateFileCodes(get().files, res.files);
+      const newSource = sourceCodeForFile(nextFiles, get().activeFileId) || get().code;
 
       // Граф берём из ответа (ID узлов пересчитаны по позициям), анализ догружаем отдельно
       graphCache = res.graph.methods;
+      documentRevision++;
       const methodsList = toMethodInfos(res.graph.methods);
       const active = graphCache.find((m) => m.methodId === activeMethodId) ?? graphCache[0];
       const flow = active ? methodToFlow(active, get().issues) : { nodes: [], edges: [] };
       set((state) => ({
         code: newSource,
-        files: updateFileCode(state.files, state.activeFileId, newSource),
+        files: nextFiles,
+        openTabs: state.openTabs.map((tab) => ({ ...tab, code: fileByPath(nextFiles, tab.path)?.code ?? tab.code })),
+        tests: pendingTests(state.tests),
         methodsList,
         activeMethodId: active?.methodId ?? null,
         nodes: flow.nodes,
@@ -428,6 +494,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
     if (!activeMethodId) {
       set({ mutationError: 'Сначала выберите метод.' });
+      return;
+    }
+    if (type === 'method') {
+      await get().applyMutation({ action: 'INSERT_METHOD', parentId: activeMethodId, payload }, `добавление метода в ${activeMethodId}`);
       return;
     }
     const targetType = nodes.find((n) => n.id === targetNodeId)?.type ?? '';
@@ -489,152 +559,23 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   optimizeSingleIssue: async (issueId: string) => {
-    const { isBackendOnline, code, activeMethodId } = get();
-    set({ isCompiling: true, bottomTab: 'console' });
-    const now = new Date().toTimeString().split(' ')[0];
-
-    get().addConsoleLog(`[${now}] Точечное устранение дефекта «${issueId}» (Слайд 5 ТЗ)...`);
-
-    if (isBackendOnline) {
-      try {
-        const optRes = await ApiClient.optimizeCode([{ path: 'Main.java', source: code }], issueId);
-        const optSource = optRes.files?.[0]?.source || code;
-
-        set((state) => ({
-          code: optSource,
-          issues: state.issues.filter((i) => i.id !== issueId),
-          isCompiling: false,
-        }));
-
-        get().addConsoleLog(`[${now}] Дефект «${issueId}» устранен: O(n²) → O(n). Объяснение: ${optRes.explanation || 'успешно'} ✔`);
-        await get().refreshGraphAndAnalysis(optSource, activeMethodId || undefined);
-        return;
-      } catch (err: any) {
-        get().addConsoleLog(`[WARN] Ошибка точечной оптимизации: ${err.message}`);
-        set({ isCompiling: false });
-      }
-    }
+    await verifyTransformation(issueId, false);
   },
 
   runOptimization: async () => {
-    const { isBackendOnline, code } = get();
-    set({ isCompiling: true, bottomTab: 'console' });
-    const now = new Date().toTimeString().split(' ')[0];
-
-    get().addConsoleLog(`[${now}] Запуск комплексной оптимизации и декомпозиции монолита (Слайды 5-6 ТЗ)...`);
-
-    if (isBackendOnline) {
-      try {
-        get().addConsoleLog(`[${now}] Вызов POST /api/optimize на Spring Boot (пакетное устранение O(n²))...`);
-        const optRes = await ApiClient.optimizeCode([{ path: 'Main.java', source: code }]);
-        const optSource = optRes.files?.[0]?.source || OPTIMIZED_JAVA_CODE;
-
-        get().addConsoleLog(`[${now}] Результат: ${optRes.explanation || 'Устранено дублирование и O(n²)'}`);
-        get().addConsoleLog(`[${now}] Вызов POST /api/decompose (автоматическое разделение на 4 класса)...`);
-        const decompRes = await ApiClient.decomposeMonolith([{ path: 'Main.java', source: optSource }]);
-
-        const newFiles = (decompRes.files || []).map((f: any) => ({
-          id: `file-${f.path.replace(/\.java$/, '').toLowerCase()}`,
-          name: f.path,
-          path: `src/com.example/${f.path}`,
-          type: 'file' as const,
-          code: f.source,
-          hasIssues: false,
-        }));
-
-        const decompTabs: FileTab[] = (decompRes.files || []).map((f: any) => ({
-          id: `tab-${f.path.replace(/[^a-zA-Z0-9]/g, '_')}`,
-          name: f.path,
-          path: `src/com.example/${f.path}`,
-          code: f.source,
-        }));
-
-        set((state) => ({
-          code: optSource,
-          isOptimized: true,
-          openTabs: decompTabs.length > 0 ? decompTabs : state.openTabs,
-          activeTabId: decompTabs[0]?.id || state.activeTabId,
-          metrics: {
-            ...state.metrics,
-            current: 'O(n)',
-            predicted: 'O(n)',
-            speedup: '5.2x (Подтверждено)',
-          },
-          files: state.files.map((root) => {
-            if (root.children) {
-              return {
-                ...root,
-                children: root.children.map((pkg) => {
-                  if (pkg.name === 'com.example') {
-                    return {
-                      ...pkg,
-                      children: [...newFiles],
-                    };
-                  }
-                  return pkg;
-                }),
-              };
-            }
-            return root;
-          }),
-        }));
-
-        get().addConsoleLog(`[${now}] Декомпозиция завершена: выделены классы ${decompRes.createdFiles?.join(', ')}`);
-        await get().refreshGraphAndAnalysis(optSource);
-
-        get().addConsoleLog(`[${now}] Подключение к SSE стриму /api/verify/stream (Quality Gate)...`);
-        const currentTests = get().tests.map((t) => ({
-          name: t.name,
-          stdin: t.stdin || '',
-          expectedStdout: t.expectedStdout,
-        }));
-
-        await ApiClient.streamVerify(
-          {
-            original: [{ path: 'Main.java', source: code }],
-            modified: decompRes.files,
-            mainClass: 'Main',
-            tests: currentTests,
-            mode: 'SORTED_LINES',
-          },
-          (logLine) => get().addConsoleLog(`[SSE] ${logLine}`),
-          (report) => {
-            set((state) => ({
-              isCompiling: false,
-              tests: state.tests.map((existing) => {
-                const tr = report.testResults?.find((r: any) => r.name === existing.name);
-                if (tr) {
-                  return {
-                    ...existing,
-                    status: tr.status === 'PASSED' ? 'PASSED' : 'FAILED',
-                    durationMs: tr.durationMs,
-                    errorDetails: tr.errorDetails,
-                  };
-                }
-                return {
-                  ...existing,
-                  status: 'PASSED',
-                  durationMs: Math.max(3, Math.floor(existing.durationMs / 3)),
-                };
-              }),
-            }));
-            get().addConsoleLog(`[${now}] Quality Gate PASSED: 100% тестов пройдены, поведение подтверждено! ✔`);
-          },
-          (err) => {
-            get().addConsoleLog(`[ERROR] Ошибка стрима: ${err}`);
-            set({ isCompiling: false });
-          }
-        );
-        return;
-      } catch (err: any) {
-        get().addConsoleLog(`[WARN] Ошибка обращения к бэкенду: ${err.message}.`);
-        set({ isCompiling: false });
-      }
-    }
+    await verifyTransformation(undefined, true);
   },
 
   runTests: async () => {
-    const { isBackendOnline, code, tests, baselineCode } = get();
+    if (get().isRunningTests || get().isCompiling) return;
+    const { isBackendOnline, tests, baselineFiles } = get();
+    const currentFiles = projectFiles(get().files);
+    const revision = documentRevision;
+    if (!isBackendOnline || tests.length === 0) {
+      get().addConsoleLog(!isBackendOnline ? '[ERROR] Бэкенд недоступен: тесты не запущены.' : '[ERROR] Добавьте хотя бы один тест.');
+      set({ isRunningTests: false });
+      return;
+    }
     set({ isRunningTests: true, bottomTab: 'tests' });
     const now = new Date().toTimeString().split(' ')[0];
     get().addConsoleLog(`[${now}] Запуск набора тестов (${tests.length} сценариев) на Quality Gate...`);
@@ -647,27 +588,31 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if (isBackendOnline) {
       try {
         const payloadTests = tests.map((t) => ({
-          name: t.name,
+          name: t.id,
           stdin: t.stdin || '',
           expectedStdout: t.expectedStdout,
         }));
 
-        const originalSource = baselineCode ?? INITIAL_JAVA_CODE;
+        const originalProject = baselineFiles ?? currentFiles;
 
         await ApiClient.streamVerify(
           {
-            original: [{ path: 'Main.java', source: originalSource }],
-            modified: [{ path: 'Main.java', source: code }],
-            mainClass: 'Main',
+            original: originalProject,
+            modified: currentFiles,
             tests: payloadTests,
-            mode: 'SORTED_LINES',
+            mode: 'EXACT',
           },
           (logLine) => get().addConsoleLog(`[SSE] ${logLine}`),
           (report) => {
+            if (revision !== documentRevision) {
+              set({ isRunningTests: false });
+              get().addConsoleLog('[WARN] Код изменился: результаты устаревшего запуска отброшены.');
+              return;
+            }
             set((state) => ({
               isRunningTests: false,
               tests: state.tests.map((t) => {
-                const tr = report.testResults?.find((r: any) => r.name === t.name);
+                const tr = report.testResults?.find((r: any) => r.name === t.id);
                 if (tr) {
                   return {
                     ...t,
@@ -676,11 +621,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
                     errorDetails: tr.errorDetails,
                   };
                 }
-                return { ...t, status: 'PASSED' };
+                return { ...t, status: 'FAILED', errorDetails: 'Результат теста не найден в отчёте' };
               }),
             }));
-            const passed = report.testResults?.filter((r) => r.status === 'PASSED').length || tests.length;
-            get().addConsoleLog(`[${now}] Quality Gate завершен: ${passed} из ${tests.length} тестов пройдены ✔`);
+            const passed = report.testResults?.filter((r) => r.status === 'PASSED').length ?? 0;
+            get().addConsoleLog(`[${now}] Quality Gate ${report.allPassed && report.behaviorMatched ? 'PASSED' : 'FAILED'}: ${passed} из ${tests.length} тестов пройдены`);
           },
           (err) => {
             get().addConsoleLog(`[ERROR] Ошибка Quality Gate: ${err}`);
@@ -699,14 +644,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   runCodeInConsole: async (stdin = '') => {
-    const { isBackendOnline, code } = get();
+    const { isBackendOnline } = get();
+    const files = projectFiles(get().files);
     set({ bottomTab: 'console' });
     const now = new Date().toTimeString().split(' ')[0];
     get().addConsoleLog(`[${now}] Компиляция и запуск Main.java в песочнице JVM...`);
 
     if (isBackendOnline) {
       try {
-        const res = await ApiClient.runCode([{ path: 'Main.java', source: code }], 'Main', stdin);
+        const res = await ApiClient.runCode(files, undefined, stdin);
         if (!res.compiled) {
           get().addConsoleLog(`[ERROR] Ошибка компиляции:\n${res.compileOutput}`);
           return;
@@ -754,8 +700,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   addTestCase: (name: string, stdin: string, expectedStdout?: string) => {
+    documentRevision++;
     const newTest: TestCaseResult = {
-      id: `custom-t-${Date.now()}`,
+      id: `custom-t-${crypto.randomUUID()}`,
       name: name.trim() || `testCustom_${get().tests.length + 1}`,
       stdin,
       expectedStdout,
@@ -767,12 +714,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   updateTestCase: (id: string, updates: Partial<TestCaseResult>) => {
+    documentRevision++;
     set((state) => ({
-      tests: state.tests.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+      tests: state.tests.map((t) => (t.id === id ? { ...t, ...updates, status: 'PENDING', durationMs: 0, errorDetails: undefined } : t)),
     }));
   },
 
   removeTestCase: (id: string) => {
+    documentRevision++;
     const test = get().tests.find((t) => t.id === id);
     set((state) => ({
       tests: state.tests.filter((t) => t.id !== id),
@@ -784,6 +733,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   importProject: async (imported) => {
     if (imported.length === 0) return;
+    documentRevision++;
     // Дерево: src/<папки из пути>/<файл>
     const root: FileItem = { id: 'imp-src', name: 'src', path: 'src', type: 'directory', children: [] };
     const all: FileItem[] = [];
@@ -816,8 +766,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       activeFileId: main.id,
       code: main.code || '',
       baselineCode: main.code || '',
+      baselineFiles: projectFiles([root]),
       isOptimized: false,
-      tests: [],
+      tests: [{ id: 'default-smoke', name: 'Стандартный ввод (пустой)', stdin: '', status: 'PENDING', durationMs: 0 }],
       openTabs: [{ id: `tab-${main.id}`, name: main.name, path: main.path, code: main.code || '' }],
       activeTabId: `tab-${main.id}`,
     });
@@ -828,8 +779,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   loadTestFiles: (files: { name: string; content: string }[]) => {
+    documentRevision++;
     const newTests: TestCaseResult[] = files.map((f, idx) => ({
-      id: `file-t-${Date.now()}-${idx}`,
+      id: `file-t-${crypto.randomUUID()}-${idx}`,
       name: f.name.replace(/\.(in|txt)$/i, ''),
       stdin: f.content,
       status: 'PENDING',
@@ -842,7 +794,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   resetDefaultTests: () => {
-    const defaults = INITIAL_TESTS;
+    documentRevision++;
+    const defaults = pendingTests(INITIAL_TESTS);
     set({ tests: defaults });
     get().addConsoleLog(`[${new Date().toTimeString().split(' ')[0]}] Набор тестов сброшен (${defaults.length} тестов)`);
   },
@@ -850,9 +803,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   // Управление вкладками файлов над Monaco Editor (Слайд 4 ТЗ)
   openFileTab: (file) => {
     const tabId = file.id || `tab-${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const exists = get().openTabs.find((t) => t.id === tabId || t.name === file.name);
+    const exists = get().openTabs.find((t) => t.path === file.path);
+    const activeFile = fileByPath(get().files, file.path);
     if (exists) {
-      set({ activeTabId: exists.id, code: exists.code });
+      set({ activeTabId: exists.id, code: activeFile?.code ?? exists.code, activeFileId: activeFile?.id ?? get().activeFileId });
     } else {
       const newTab: FileTab = {
         id: tabId,
@@ -863,6 +817,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       set((state) => ({
         openTabs: [...state.openTabs, newTab],
         activeTabId: tabId,
+        activeFileId: activeFile?.id ?? state.activeFileId,
         code: file.code,
       }));
     }
@@ -873,11 +828,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const tabs = get().openTabs;
     if (tabs.length <= 1) return; // Не закрываем последнюю вкладку
     const newTabs = tabs.filter((t) => t.id !== tabId);
-    const nextActive = newTabs[newTabs.length - 1];
+    const nextActive = newTabs.find((tab) => tab.id === get().activeTabId) ?? newTabs[newTabs.length - 1];
     set({
       openTabs: newTabs,
       activeTabId: nextActive.id,
       code: nextActive.code,
+      activeFileId: fileByPath(get().files, nextActive.path)?.id ?? get().activeFileId,
     });
     get().refreshGraphAndAnalysis(nextActive.code);
   },
@@ -885,11 +841,74 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setActiveTabId: (tabId: string) => {
     const tab = get().openTabs.find((t) => t.id === tabId);
     if (tab) {
-      set({ activeTabId: tabId, code: tab.code });
+      set({ activeTabId: tabId, code: tab.code, activeFileId: fileByPath(get().files, tab.path)?.id ?? get().activeFileId });
       get().refreshGraphAndAnalysis(tab.code);
     }
   },
 }));
+
+/** Candidates are committed to the editor only after an exact behavior check succeeds. */
+async function verifyTransformation(issueId?: string, decompose = false) {
+  const initial = useStudioStore.getState();
+  if (!initial.isBackendOnline || initial.isCompiling || initial.isRunningTests || initial.isMutating) {
+    if (!initial.isBackendOnline) initial.addConsoleLog('[ERROR] Бэкенд недоступен: оптимизация не запущена.');
+    return;
+  }
+  const original = projectFiles(initial.files);
+  const revision = documentRevision;
+  const tests = initial.tests.length ? initial.tests : [{ id: 'default-smoke', name: 'Стандартный ввод', stdin: '', status: 'PENDING' as const, durationMs: 0 }];
+  useStudioStore.setState({ isCompiling: true, bottomTab: 'console', isOptimized: false });
+  try {
+    const optimized = await ApiClient.optimizeCode(original, issueId);
+    let candidate: ProjectFileDto[] = optimized.files;
+    if (!candidate?.length) throw new Error('Оптимизатор не вернул проект');
+    initial.addConsoleLog(`[${timeNow()}] ${optimized.explanation || 'Кандидат оптимизации получен'}`);
+    if (decompose) {
+      const decomposed = await ApiClient.decomposeMonolith(candidate);
+      candidate = decomposed.files;
+      initial.addConsoleLog(`[${timeNow()}] ${decomposed.explanation}`);
+    }
+    await ApiClient.streamVerify(
+      { original, modified: candidate, tests: tests.map((t) => ({ name: t.id, stdin: t.stdin || '', expectedStdout: t.expectedStdout })), mode: 'EXACT' },
+      (line) => initial.addConsoleLog(`[SSE] ${line}`),
+      (report) => {
+        if (revision !== documentRevision) {
+          initial.addConsoleLog('[WARN] Код изменился: кандидат оптимизации отброшен.');
+          return;
+        }
+        const passed = report.allPassed && report.behaviorMatched && report.testResults.length === tests.length
+          && tests.every((test) => report.testResults.find((result) => result.name === test.id)?.status === 'PASSED');
+        useStudioStore.setState({
+          tests: tests.map((test) => {
+            const result = report.testResults.find((item) => item.name === test.id);
+            return { ...test, status: result?.status === 'PASSED' ? 'PASSED' : 'FAILED', durationMs: result?.durationMs ?? 0,
+              errorDetails: result?.errorDetails || (result ? undefined : 'Нет результата в отчёте') };
+          }),
+        });
+        if (!passed) {
+          initial.addConsoleLog('[ERROR] Quality Gate FAILED: исходный проект сохранён.');
+          return;
+        }
+        const next = fileItemsFromDtos(candidate);
+        const oldActive = collectFiles(initial.files).find((file) => file.id === initial.activeFileId);
+        const active = fileByPath(next.tree, oldActive?.path || '') || next.files[0];
+        const tabs = next.files.map((file) => ({ id: `tab-${file.id}`, name: file.name, path: file.path, code: file.code || '' }));
+        documentRevision++;
+        useStudioStore.setState({ files: next.tree, activeFileId: active.id, code: active.code || '', openTabs: tabs,
+          activeTabId: `tab-${active.id}`, isOptimized: true, baselineFiles: original,
+          baselineCode: oldActive?.code ?? original[0].source,
+          metrics: { ...useStudioStore.getState().metrics, speedup: report.speedup } });
+        initial.addConsoleLog(`[${timeNow()}] Quality Gate PASSED: ${report.passed ?? tests.length}/${tests.length}, измеренное ускорение ${report.speedup}.`);
+        void useStudioStore.getState().refreshGraphAndAnalysis();
+      },
+      (error) => initial.addConsoleLog(`[ERROR] Quality Gate: ${error}. Исходный проект сохранён.`)
+    );
+  } catch (error: any) {
+    initial.addConsoleLog(`[ERROR] Преобразование отклонено: ${error.message}`);
+  } finally {
+    useStudioStore.setState({ isCompiling: false });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Сохранение импортированного проекта между перезагрузками страницы (localStorage).
@@ -908,8 +927,9 @@ const restoreSavedProject = () => {
       activeFileId: saved.activeFileId,
       code: saved.code,
       baselineCode: typeof saved.baselineCode === 'string' ? saved.baselineCode : saved.code,
-      isOptimized: !!saved.isOptimized,
-      tests: Array.isArray(saved.tests) ? saved.tests : [],
+      baselineFiles: Array.isArray(saved.baselineFiles) ? saved.baselineFiles : projectFiles(saved.files),
+      isOptimized: false,
+      tests: pendingTests(Array.isArray(saved.tests) ? saved.tests : []),
       openTabs: Array.isArray(saved.openTabs) ? saved.openTabs : useStudioStore.getState().openTabs,
       activeTabId: saved.activeTabId ?? useStudioStore.getState().activeTabId,
     });
@@ -933,6 +953,7 @@ const persistProject = () => {
         activeFileId: s.activeFileId,
         code: s.code,
         baselineCode: s.baselineCode,
+        baselineFiles: s.baselineFiles,
         isOptimized: s.isOptimized,
         openTabs: s.openTabs,
         activeTabId: s.activeTabId,

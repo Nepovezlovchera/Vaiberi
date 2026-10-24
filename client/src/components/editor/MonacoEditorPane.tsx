@@ -4,7 +4,7 @@ import { useStudioStore } from '../../store/useStudioStore';
 import { EditorTabs } from './EditorTabs';
 
 export const MonacoEditorPane: React.FC = () => {
-  const { code, setCode, activeLineRange } = useStudioStore();
+  const { code, setCode, activeLineRange, theme } = useStudioStore();
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const decorationsRef = useRef<string[]>([]);
@@ -100,7 +100,7 @@ export const MonacoEditorPane: React.FC = () => {
         <Editor
           height="100%"
           defaultLanguage="java"
-          theme="vs-dark"
+          theme={theme === 'dark' ? 'vs-dark' : 'light'}
           value={code}
           onChange={handleCodeChange}
           onMount={handleEditorMount}

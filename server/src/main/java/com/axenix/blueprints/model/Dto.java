@@ -98,5 +98,5 @@ public final class Dto {
     // ---------- запуск (консоль) ----------
     public record RunRequest(List<ProjectFile> files, String mainClass, String stdin) {}
     public record RunResponse(boolean compiled, String compileOutput, String stdout, String stderr,
-                              int exitCode, boolean timedOut, long millis) {}
+                              int exitCode, boolean timedOut, long millis, boolean outputTruncated) {}
 }

@@ -2,20 +2,22 @@ package com.axenix.blueprints.controller;
 
 import com.axenix.blueprints.model.Dto.*;
 import com.axenix.blueprints.model.Services.*;
-import com.axenix.blueprints.sandbox.ReportStore;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 
 @RestController
 @RequestMapping("/api")
-@CrossOrigin // на хакатоне достаточно; для прода заменить на конкретный origin
+@CrossOrigin(origins = "${blueprints.cors.allowed-origin:http://localhost:3000}")
 public class ApiController {
 
     private final GraphService graphService;
@@ -25,13 +27,16 @@ public class ApiController {
     private final DecomposeService decomposeService;
     private final VerifyService verifyService;
     private final RunService runService;
-    private final ReportStore reports;
-    private final ExecutorService streams = Executors.newCachedThreadPool();
+    private final ExecutorService streams = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(4), new ThreadPoolExecutor.AbortPolicy());
+
+    @PreDestroy
+    public void closeStreams() { streams.shutdownNow(); }
 
     public ApiController(GraphService graphService, GraphEditService graphEditService,
                          AnalyzerService analyzerService, OptimizerService optimizerService,
                          DecomposeService decomposeService, VerifyService verifyService,
-                         RunService runService, ReportStore reports) {
+                         RunService runService) {
         this.graphService = graphService;
         this.graphEditService = graphEditService;
         this.analyzerService = analyzerService;
@@ -39,7 +44,6 @@ public class ApiController {
         this.decomposeService = decomposeService;
         this.verifyService = verifyService;
         this.runService = runService;
-        this.reports = reports;
     }
 
     @GetMapping("/health")
@@ -48,33 +52,39 @@ public class ApiController {
     /** Java → граф (по графу на метод) + метрики. */
     @PostMapping("/graph")
     public GraphResponse graph(@RequestBody GraphRequest req) {
+        RequestLimits.graph(req);
         return graphService.graph(req.files(), req.methodId());
     }
 
     /** Правка графа → новый код + перестроенный граф (с проверкой компиляции). */
     @PostMapping("/graph/mutate")
     public MutateResponse mutate(@RequestBody MutateRequest req) {
+        RequestLimits.mutate(req);
         return graphEditService.mutate(req);
     }
 
     @PostMapping("/analysis")
     public AnalysisReport analysis(@RequestBody FilesRequest req) {
+        RequestLimits.filesRequest(req);
         return analyzerService.analyze(req.files());
     }
 
     @PostMapping("/optimize")
     public OptimizeResponse optimize(@RequestBody OptimizeRequest req) {
+        RequestLimits.optimize(req);
         return optimizerService.optimize(req);
     }
 
     @PostMapping("/decompose")
     public DecomposeResponse decompose(@RequestBody DecomposeRequest req) {
+        RequestLimits.decompose(req);
         return decomposeService.decompose(req);
     }
 
     /** Quality Gate, синхронный вариант. */
     @PostMapping("/verify")
     public VerificationReport verify(@RequestBody VerifyRequest req) {
+        RequestLimits.verify(req);
         return verifyService.verify(req);
     }
 
@@ -84,7 +94,8 @@ public class ApiController {
      */
     @PostMapping(value = "/verify/stream", produces = "text/event-stream")
     public SseEmitter verifyStream(@RequestBody VerifyRequest req) {
-        SseEmitter emitter = new SseEmitter(180_000L);
+        RequestLimits.verify(req);
+        SseEmitter emitter = new SseEmitter(700_000L);
         streams.submit(() -> {
             try {
                 VerificationReport report = verifyService.verify(req, line -> {
@@ -98,7 +109,7 @@ public class ApiController {
                 emitter.complete();
             } catch (Exception e) {
                 try {
-                    emitter.send(SseEmitter.event().name("error").data(String.valueOf(e.getMessage())));
+                    emitter.send(SseEmitter.event().name("error").data("Проверка не завершена. Повторите запрос."));
                 } catch (IOException ignored) {
                     // нечего сообщать закрытому потоку
                 }
@@ -108,15 +119,10 @@ public class ApiController {
         return emitter;
     }
 
-    /** Последний сохранённый verification_report.json. */
-    @GetMapping(value = "/verify/report", produces = "application/json")
-    public String report() {
-        return reports.load().orElseThrow(() -> new NoSuchElementException("Отчёт ещё не создан: запустите /api/verify"));
-    }
-
     /** Скомпилировать и запустить проект (консоль). */
     @PostMapping("/run")
     public RunResponse run(@RequestBody RunRequest req) {
+        RequestLimits.run(req);
         return runService.run(req);
     }
 }

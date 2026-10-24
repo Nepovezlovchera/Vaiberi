@@ -10,6 +10,8 @@ import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.BodyDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.Statement;
 
@@ -47,6 +49,7 @@ public class GraphEditServiceImpl implements GraphEditService {
             case "UPDATE_CODE" -> updateCode(pm, parser, req.nodeId(), req.payload());
             case "DELETE_NODE" -> delete(pm, req.nodeId());
             case "INSERT_NODE" -> insert(pm, parser, req);
+            case "INSERT_METHOD" -> insertMethod(pm, parser, req);
             case "REORDER", "MOVE_NODE" -> move(pm, req.nodeId(), req.parentId(), req.index());
             default -> throw new IllegalArgumentException("Неизвестное действие: " + req.action()
                     + " (ожидается UPDATE_CODE, DELETE_NODE, INSERT_NODE, REORDER)");
@@ -129,6 +132,20 @@ public class GraphEditServiceImpl implements GraphEditService {
         pm.touch(m.file());
     }
 
+    private void insertMethod(ProjectModel pm, JavaParser parser, MutateRequest op) {
+        ProjectModel.MethodRef anchor = pm.method(op.parentId());
+        ClassOrInterfaceDeclaration owner = anchor.decl().findAncestor(ClassOrInterfaceDeclaration.class)
+                .orElseThrow(() -> new IllegalArgumentException("Метод можно добавить только в класс"));
+        if (op.payload() == null || op.payload().isBlank()) throw new IllegalArgumentException("Не передан код метода");
+        ParseResult<BodyDeclaration<?>> result = parser.parseBodyDeclaration(op.payload());
+        if (!result.isSuccessful() || result.getResult().isEmpty()
+                || !(result.getResult().get() instanceof com.github.javaparser.ast.body.MethodDeclaration)) {
+            throw new IllegalArgumentException("Код нового метода не разобран");
+        }
+        owner.addMember(result.getResult().get());
+        pm.touch(anchor.file());
+    }
+
     private void move(ProjectModel pm, String nodeId, String parentId, Integer index) {
         Ref src = Ref.parse(nodeId);
         Ref dst = Ref.parse(parentId);
@@ -148,6 +165,8 @@ public class GraphEditServiceImpl implements GraphEditService {
 
         Statement copy = moving.clone();
         from.list().remove(from.index());
+        if (holder instanceof com.github.javaparser.ast.stmt.IfStmt condition && "e".equals(slot)
+                && condition.getElseStmt().isEmpty()) condition.setElseStmt(new BlockStmt());
         NodeList<Statement> target = dst.path == null ? ((BlockStmt) holder).getStatements()
                 : StmtSlots.write((Statement) holder, slot, true);
         target.add(clamp(index, target.size()), copy);

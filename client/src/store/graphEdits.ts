@@ -110,7 +110,7 @@ export function connectPlacement(
 ): Placement | null {
   if (sourceId === targetId || isEntryNode(targetId) || sourceId.startsWith(targetId + '.')) return null;
   const slot = handle ? HANDLE_SLOT[sourceType]?.[handle] : undefined;
-  if (slot && !(slot === 'e' && !conditionHasElse)) {
+  if (slot) {
     if (isEntryNode(sourceId)) return null;
     return { parentId: `${sourceId}:${slot}`, index: 0 };
   }

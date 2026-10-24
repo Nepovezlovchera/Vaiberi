@@ -56,6 +56,7 @@ const FlowCanvasInternal: React.FC = () => {
     dismissMutationError,
   } = useStudioStore();
   const { fitView, zoomIn, zoomOut, getIntersectingNodes, screenToFlowPosition } = useReactFlow();
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   // Позиция узла до перетаскивания: если перенос в коде не удался, узел возвращается на место
   const dragOrigin = useRef<{ id: string; x: number; y: number } | null>(null);
@@ -178,14 +179,17 @@ const FlowCanvasInternal: React.FC = () => {
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      setNodes((nds) => applyNodeChanges(changes, nds));
+      setNodes((nds) => applyNodeChanges(changes.filter((change) => change.type !== 'remove'), nds));
     },
     [setNodes]
   );
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      setEdges((eds) => applyEdgeChanges(changes, eds));
+      if (changes.some((change) => change.type === 'remove')) {
+        useStudioStore.setState({ mutationError: 'Связь задаётся структурой Java. Измените ветку или порядок блоков; отдельное удаление перехода не создаёт корректный Java.' });
+      }
+      setEdges((eds) => applyEdgeChanges(changes.filter((change) => change.type !== 'remove'), eds));
     },
     [setEdges]
   );
@@ -207,6 +211,19 @@ const FlowCanvasInternal: React.FC = () => {
     setEdges([...layouted.edges]);
     setTimeout(() => fitView({ padding: 0.2 }), 50);
   }, [nodes, edges, setNodes, setEdges, fitView]);
+
+  const handleFullscreen = useCallback(async () => {
+    try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await canvasRef.current?.requestFullscreen();
+      setTimeout(() => fitView({ padding: 0.2 }), 50);
+    }
+    } catch {
+      useStudioStore.setState({ mutationError: 'Браузер не разрешил полноэкранный режим.' });
+    }
+  }, [fitView]);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -239,7 +256,7 @@ const FlowCanvasInternal: React.FC = () => {
   }, [nodes, selectedNodeId, dropTargetId, isMutating]);
 
   return (
-    <div className="relative w-full h-full bg-[#0a0a0c] overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
+    <div ref={canvasRef} className="relative w-full h-full bg-[#0a0a0c] overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
       {/* Method Dropdown Selector (Слайды 3, 4 ТЗ) */}
       {methodsList.length > 0 && (
         <div className="absolute top-3 left-4 z-10 flex items-center gap-2 bg-surface/90 backdrop-blur border border-border px-2.5 py-1.5 rounded-lg shadow-xl">
@@ -269,7 +286,7 @@ const FlowCanvasInternal: React.FC = () => {
         <div className="absolute top-14 left-4 z-10 flex items-center gap-2 bg-amber-950/90 backdrop-blur border border-amber-500/50 px-3 py-1.5 rounded-lg shadow-2xl">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
           <span className="text-xs font-bold text-amber-300">
-            Визуальный трассировщик CFG: шаг {debugStepIndex + 1} из {nodes.length}
+            Обход узлов графа: шаг {debugStepIndex + 1} из {nodes.length}
           </span>
           <button
             onClick={stepDebug}
@@ -370,9 +387,9 @@ const FlowCanvasInternal: React.FC = () => {
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={() => fitView({ padding: 0.2 })}
+          onClick={handleFullscreen}
           className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition"
-          title="По размеру экрана"
+          title="Во весь экран"
         >
           <Maximize2 className="w-3.5 h-3.5" />
         </button>

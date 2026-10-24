@@ -28,9 +28,10 @@ public class RunServiceImpl implements RunService {
             dir = Files.createTempDirectory("bp-run-");
             String main = MainClassFinder.find(req.files(), req.mainClass());
             CompilerService.CompileResult c = compiler.compile(req.files(), dir);
-            if (!c.ok()) return new RunResponse(false, c.output(), "", "", -1, false, 0);
+            if (!c.ok()) return new RunResponse(false, c.output(), "", "", -1, false, 0, false);
             ProcessRunner.RunResult r = runner.run(c.classesDir(), main, req.stdin());
-            return new RunResponse(true, "", r.stdout(), r.stderr(), r.exitCode(), r.timedOut(), r.millis());
+            String stderr = r.outputTruncated() ? r.stderr() + "\n[output truncated after 1MB]" : r.stderr();
+            return new RunResponse(true, "", r.stdout(), stderr, r.exitCode(), r.timedOut(), r.millis(), r.outputTruncated());
         } catch (IOException e) {
             throw new IllegalStateException("Ошибка запуска: " + e.getMessage(), e);
         } catch (InterruptedException e) {

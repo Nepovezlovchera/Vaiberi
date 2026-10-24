@@ -70,6 +70,23 @@ html:not(.dark) .text-zinc-400 {
   color: #64748b !important;
 }
 
+html:not(.dark) [class*="bg-[#18181b]"],
+html:not(.dark) [class*="bg-[#0a0a0c]"],
+html:not(.dark) [class*="bg-[#09090b]"],
+html:not(.dark) [class*="bg-zinc-950"],
+html:not(.dark) [class*="bg-zinc-900/"],
+html:not(.dark) [class*="bg-surface/"] {
+  background-color: #f8fafc !important;
+}
+html:not(.dark) [class*="bg-zinc-800/"] { background-color: #e2e8f0 !important; }
+html:not(.dark) ::-webkit-scrollbar-track { background: #f1f5f9; }
+html:not(.dark) ::-webkit-scrollbar-thumb { background: #94a3b8; }
+html:not(.dark) .react-flow__controls button {
+  background: white !important;
+  color: #334155 !important;
+  fill: #334155 !important;
+}
+
 /* React Flow custom dark background and overrides */
 .react-flow__pane {
   cursor: grab;

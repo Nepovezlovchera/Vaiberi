@@ -59,7 +59,7 @@ import java.util.stream.Collectors;
  */
 public final class ExtractMethod {
 
-    private static final int MIN_SEGMENT_LINES = 5;
+    private static final int MIN_SEGMENT_LINES = 3;
 
     private ExtractMethod() {}
 
@@ -84,6 +84,15 @@ public final class ExtractMethod {
                 if (p != null) {
                     best = p;
                     bestScore = score;
+                }
+            }
+        }
+        if (best == null) {
+            for (int i = 0; i < st.size(); i++) {
+                Plan p = plan(m, st, i, i);
+                if (p != null && span(st.get(i)) > 0) {
+                    best = p;
+                    break;
                 }
             }
         }
