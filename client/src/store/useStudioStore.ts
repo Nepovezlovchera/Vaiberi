@@ -13,7 +13,7 @@ import {
 } from './mockData';
 import { SAMPLE_MONOLITH_CODE, SAMPLE_MONOLITH_TESTS } from './monolithData';
 import { ApiClient, ApiError, MethodGraphResponseDto, MutateRequestDto } from '../api/apiClient';
-import { isEntryNode, moveAfter, moveInside, nodeIdAt, paletteSnippet, placeAfter, placeInside } from './graphEdits';
+import { connectPlacement, isEntryNode, moveAfter, moveInside, nodeIdAt, paletteSnippet, placeAfter, placeInside } from './graphEdits';
 import { methodToFlow, methodOfNode, pickInitialMethod, toIssues, toMethodInfos, toMetrics } from './graphMapper';
 
 // Client-side Security: Ring Buffer limit for console to prevent DOM freeze (Client-side DoS)
@@ -120,6 +120,8 @@ interface StudioState {
   addCustomNode: (type: string, targetNodeId: string | null, inside: boolean) => Promise<void>;
   /** Перенос узла после targetNodeId или в начало его тела (inside). false — ничего не изменилось */
   moveNode: (nodeId: string, targetNodeId: string, inside: boolean) => Promise<boolean>;
+  /** Новая связь на холсте: target переносится в ветку source, на которую указывает ручка (или сразу после source) */
+  connectNodes: (sourceId: string, sourceHandle: string | null | undefined, targetId: string) => Promise<void>;
   setBottomTab: (tab: 'code' | 'console' | 'tests') => void;
   setRightTab: (tab: 'issues' | 'recommendations' | 'metrics') => void;
   runOptimization: () => Promise<void>;
@@ -475,6 +477,23 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     );
     if (ok) get().selectNode(nodeIdAt(place));
     return ok;
+  },
+
+  connectNodes: async (sourceId, sourceHandle, targetId) => {
+    const { nodes, edges } = get();
+    const sourceType = nodes.find((n) => n.id === sourceId)?.type ?? '';
+    // У if есть else, если ветка «Нет» ведёт в его слот e (без else она ведёт к следующему оператору)
+    const hasElse = edges.some((e) => e.source === sourceId && e.target.startsWith(`${sourceId}.e.`));
+    const place = connectPlacement(sourceId, sourceType, sourceHandle, targetId, hasElse);
+    if (!place) {
+      set({ mutationError: 'Такую связь нельзя превратить в код: узел нельзя перенести сам в себя или в метод целиком.' });
+      return;
+    }
+    const ok = await get().applyMutation(
+      { action: 'REORDER', nodeId: targetId, parentId: place.parentId, index: place.index },
+      `связь ${sourceId} → ${targetId}: перенос в ${place.parentId}[${place.index}]`
+    );
+    if (ok) get().selectNode(nodeIdAt(place));
   },
 
   setBottomTab: (tab) => set({ bottomTab: tab }),

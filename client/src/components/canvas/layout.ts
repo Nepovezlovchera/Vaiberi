@@ -1,8 +1,16 @@
 import dagre from '@dagrejs/dagre';
 import { Node, Edge } from '@xyflow/react';
 
-// Размеры узлов для dagre: единый источник для расчёта и для смещения позиции
-function getNodeSize(type?: string): { width: number; height: number } {
+// Размеры узлов для dagre: единый источник для расчёта и для смещения позиции.
+// Отрисованный узел знает свой размер (measured): без него узлы с длинным кодом шире оценки и наезжают на соседей.
+function getNodeSize(node: Node): { width: number; height: number } {
+  if (node.measured?.width && node.measured?.height) {
+    return { width: node.measured.width, height: node.measured.height };
+  }
+  return estimateNodeSize(node.type);
+}
+
+function estimateNodeSize(type?: string): { width: number; height: number } {
   switch (type) {
     case 'condition':
       return { width: 280, height: 70 };
@@ -35,7 +43,7 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'T
   });
 
   nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, getNodeSize(node.type));
+    dagreGraph.setNode(node.id, getNodeSize(node));
   });
 
   edges.forEach((edge) => {
@@ -46,7 +54,7 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'T
 
   const layoutedNodes = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
-    const { width, height } = getNodeSize(node.type);
+    const { width, height } = getNodeSize(node);
 
     return {
       ...node,

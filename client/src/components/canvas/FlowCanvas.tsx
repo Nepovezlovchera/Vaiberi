@@ -12,6 +12,8 @@ import {
   useReactFlow,
   ReactFlowProvider,
   Node,
+  Connection,
+  useNodesInitialized,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -49,38 +51,32 @@ const FlowCanvasInternal: React.FC = () => {
     syncStatus,
     syncError,
     moveNode,
+    connectNodes,
     mutationError,
     dismissMutationError,
   } = useStudioStore();
   const { fitView, zoomIn, zoomOut, getIntersectingNodes, screenToFlowPosition } = useReactFlow();
 
-  // Позиция узла до перетаскивания: если перенос не состоялся, узел возвращается на место
+  // Позиция узла до перетаскивания: если перенос в коде не удался, узел возвращается на место
   const dragOrigin = useRef<{ id: string; x: number; y: number } | null>(null);
-  // Узел, на который сейчас наведён перетаскиваемый узел (подсветка цели)
+  // Узел под курсором при перетаскивании (подсветка цели)
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
-  /** Узел под перетаскиваемым: из пересекающихся — ближайший по центру */
+  /**
+   * Цель переноса — узел под курсором (не по пересечению рамок: соседние узлы стоят вплотную,
+   * и малейший сдвиг считался бы переносом). Сам узел и его тело целью быть не могут.
+   */
   const findDropTarget = useCallback(
-    (dragged: Node): Node | null => {
-      const w = dragged.measured?.width ?? 0;
-      const h = dragged.measured?.height ?? 0;
-      const cx = dragged.position.x + w / 2;
-      const cy = dragged.position.y + h / 2;
-      let best: Node | null = null;
-      let bestDist = Infinity;
-      for (const n of getIntersectingNodes(dragged)) {
-        if (n.id === dragged.id) continue;
-        const nx = n.position.x + (n.measured?.width ?? 0) / 2;
-        const ny = n.position.y + (n.measured?.height ?? 0) / 2;
-        const d = (nx - cx) ** 2 + (ny - cy) ** 2;
-        if (d < bestDist) {
-          best = n;
-          bestDist = d;
-        }
-      }
-      return best;
+    (event: MouseEvent | TouchEvent, draggedId: string): Node | null => {
+      const p = 'touches' in event ? event.changedTouches[0] : event;
+      if (!p) return null;
+      const point = screenToFlowPosition({ x: p.clientX, y: p.clientY });
+      const hits = getIntersectingNodes({ x: point.x, y: point.y, width: 1, height: 1 }).filter(
+        (n) => n.id !== draggedId && !n.id.startsWith(draggedId + '.')
+      );
+      return hits[hits.length - 1] ?? null;
     },
-    [getIntersectingNodes]
+    [getIntersectingNodes, screenToFlowPosition]
   );
 
   const restoreDragged = useCallback(() => {
@@ -95,18 +91,18 @@ const FlowCanvasInternal: React.FC = () => {
   }, []);
 
   const onNodeDrag = useCallback(
-    (_: MouseEvent | TouchEvent, node: Node) => setDropTargetId(findDropTarget(node)?.id ?? null),
+    (event: MouseEvent | TouchEvent, node: Node) => setDropTargetId(findDropTarget(event, node.id)?.id ?? null),
     [findDropTarget]
   );
 
-  // Брошен на узел — перенос после него (с Shift — в начало его тела) через /api/graph/mutate REORDER.
-  // Мимо узлов или перенос не удался — узел возвращается на место, код не меняется.
+  // Отпущен над узлом — перенос оператора после него (с Shift — в начало его тела) через /api/graph/mutate.
+  // Над пустым местом — просто новая позиция на холсте, код не меняется.
   const onNodeDragStop = useCallback(
     async (event: MouseEvent | TouchEvent, node: Node) => {
       setDropTargetId(null);
-      const target = findDropTarget(node);
+      const target = findDropTarget(event, node.id);
       if (!target) {
-        restoreDragged();
+        dragOrigin.current = null;
         return;
       }
       const moved = await moveNode(node.id, target.id, event.shiftKey);
@@ -114,6 +110,14 @@ const FlowCanvasInternal: React.FC = () => {
       dragOrigin.current = null;
     },
     [findDropTarget, moveNode, restoreDragged]
+  );
+
+  // Связь, протянутая от ручки узла к другому узлу, — перенос оператора в эту ветку (см. connectNodes)
+  const onConnect = useCallback(
+    (c: Connection) => {
+      if (c.source && c.target) connectNodes(c.source, c.sourceHandle, c.target);
+    },
+    [connectNodes]
   );
 
   const nodeTypes = useMemo(
@@ -134,6 +138,21 @@ const FlowCanvasInternal: React.FC = () => {
     }),
     []
   );
+
+  // Новый граф сначала раскладывается по оценочным размерам; когда узлы отрисованы и измерены,
+  // раскладываем ещё раз по реальным (иначе широкие узлы наезжают друг на друга). Один раз на набор узлов,
+  // чтобы не сбивать позиции, которые пользователь задал перетаскиванием.
+  const nodesInitialized = useNodesInitialized();
+  const laidOutKey = useRef('');
+  useEffect(() => {
+    if (!nodesInitialized || nodes.length === 0) return;
+    const key = nodes.map((n) => n.id).join('|');
+    if (key === laidOutKey.current) return;
+    laidOutKey.current = key;
+    const layouted = getLayoutedElements(nodes, edges);
+    setNodes(layouted.nodes);
+    setTimeout(() => fitView({ padding: 0.2 }), 50);
+  }, [nodesInitialized, nodes, edges, setNodes, fitView]);
 
   // Подгоняем вид при смене метода или набора узлов
   useEffect(() => {
@@ -369,6 +388,7 @@ const FlowCanvasInternal: React.FC = () => {
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
+        onConnect={onConnect}
         onPaneClick={onPaneClick}
         fitView
         fitViewOptions={{ padding: 0.25 }}

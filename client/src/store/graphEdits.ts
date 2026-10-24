@@ -88,6 +88,35 @@ export function moveInside(nodeId: string, containerId: string, containerType: s
   return placeInside(containerId, containerType);
 }
 
+/** Слот составного узла по ручке, из которой протянута связь */
+const HANDLE_SLOT: Record<string, Record<string, string>> = {
+  loop: { body: 'b' },
+  condition: { true: 't', false: 'e' },
+  try: { body: 'b', catch: 'c0', finally: 'f' },
+  switch: { body: 's0' },
+};
+
+/**
+ * Связь source → target на холсте как правка кода: target переносится туда, куда ведёт ручка.
+ * Ручки тела (Тело, Да, catch, finally, case) — в начало этой ветки; «Нет» — в else, если он есть,
+ * иначе сразу после if (туда и ведёт ветка «Нет»); обычный выход — сразу после source.
+ */
+export function connectPlacement(
+  sourceId: string,
+  sourceType: string,
+  handle: string | null | undefined,
+  targetId: string,
+  conditionHasElse: boolean
+): Placement | null {
+  if (sourceId === targetId || isEntryNode(targetId) || sourceId.startsWith(targetId + '.')) return null;
+  const slot = handle ? HANDLE_SLOT[sourceType]?.[handle] : undefined;
+  if (slot && !(slot === 'e' && !conditionHasElse)) {
+    if (isEntryNode(sourceId)) return null;
+    return { parentId: `${sourceId}:${slot}`, index: 0 };
+  }
+  return moveAfter(targetId, sourceId);
+}
+
 /** Составные узлы, в тело которых можно бросить блок (с Shift) */
 export const CONTAINER_TYPES = new Set(['method', 'loop', 'condition', 'try', 'switch']);
 
