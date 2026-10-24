@@ -240,6 +240,73 @@ class OptimizerServiceTest {
         assertTrue(v.behaviorMatched(), v.testResults().toString() + v.compileOutput() + r.files().get(0).source());
     }
 
+    @Test
+    void longMethodCanBeExtractedAgainFromGeneratedHelper() {
+        StringBuilder source = new StringBuilder("public class Main {\n")
+                .append("  static int run(int x) {\n    int value = x;\n");
+        for (int i = 0; i < 100; i++) source.append("    value += ").append(i).append(";\n");
+        source.append("    return value;\n  }\n  public static void main(String[] a) { System.out.println(run(1)); }\n}\n");
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", source.toString()));
+        CodeIssue first = issue(files, "LONG_METHOD", "Main.run");
+        OptimizeResponse firstFix = optimizer.optimize(new OptimizeRequest(files, first.id(), false));
+        CodeIssue helper = issue(firstFix.files(), "LONG_METHOD", "Main.runPart1");
+        OptimizeResponse secondFix = optimizer.optimize(new OptimizeRequest(firstFix.files(), helper.id(), false));
+        assertTrue(secondFix.files().get(0).source().contains("runPart1Part"), secondFix.files().get(0).source());
+        assertSameBehavior(files, secondFix.files());
+    }
+
+    @Test
+    void compoundDuplicateIdLoopUsesLinearSetFix() {
+        String src = "import java.util.*;\n"
+                + "public class Main {\n"
+                + "  static class Order { String id; Order(String id) { this.id = id; } }\n"
+                + "  static List<String> duplicateIds(List<Order> orders) {\n"
+                + "    List<String> duplicates = new ArrayList<>();\n"
+                + "    for (Order a : orders) {\n"
+                + "      for (Order b : orders) {\n"
+                + "        if (a != b && a.id.equals(b.id)) {\n"
+                + "          if (!duplicates.contains(a.id)) { duplicates.add(a.id); }\n"
+                + "        }\n"
+                + "      }\n"
+                + "    }\n"
+                + "    return duplicates;\n"
+                + "  }\n"
+                + "  public static void main(String[] a) {\n"
+                + "    List<Order> x = List.of(new Order(\"a\"), new Order(\"b\"), new Order(\"a\"));\n"
+                + "    System.out.println(duplicateIds(x));\n"
+                + "  }\n"
+                + "}\n";
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", src));
+        CodeIssue i = issue(files, "NESTED_LOOP", "Main.duplicateIds");
+        OptimizeResponse r = optimizer.optimize(new OptimizeRequest(files, i.id(), false));
+        assertEquals("TEMPLATE", r.strategy());
+        assertTrue(r.files().get(0).source().contains("HashSet") || r.files().get(0).source().contains("LinkedHashSet"), r.files().get(0).source());
+        assertSameBehavior(files, r.files());
+    }
+
+    @Test
+    void duplicateConditionCanBeFixedAfterExtractMethod() {
+        StringBuilder src = new StringBuilder("import java.util.*;\npublic class Main {\n")
+                .append("  static String report(List<Integer> xs) {\n")
+                .append("    if (xs == null || xs.isEmpty()) return \"empty\";\n")
+                .append("    StringBuilder out = new StringBuilder();\n");
+        for (int i = 0; i < 70; i++) src.append("    out.append(").append(i).append(");\n");
+        src.append("    if (xs == null || xs.isEmpty()) out.append(\"empty\");\n")
+                .append("    return out.toString();\n  }\n")
+                .append("  public static void main(String[] a) { System.out.println(report(List.of(1))); }\n}\n");
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", src.toString()));
+        CodeIssue longIssue = issue(files, "LONG_METHOD", "Main.report");
+        OptimizeResponse extracted = optimizer.optimize(new OptimizeRequest(files, longIssue.id(), false));
+        AnalysisReport after = analyzer.analyze(extracted.files());
+        CodeIssue condition = after.issues().stream()
+                .filter(x -> x.type().equals("DUPLICATION") && x.title().equals("Повторяющееся условие"))
+                .findFirst().orElseThrow();
+        OptimizeResponse fixed = optimizer.optimize(new OptimizeRequest(extracted.files(), condition.id(), false));
+        assertSameBehavior(files, fixed.files());
+        assertTrue(analyzer.analyze(fixed.files()).issues().stream()
+                .noneMatch(x -> x.type().equals("DUPLICATION") && x.title().equals("Повторяющееся условие")), fixed.files().get(0).source());
+    }
+
     private static final String DUP = String.join("\n",
             "import java.util.*;",
             "public class Main {",

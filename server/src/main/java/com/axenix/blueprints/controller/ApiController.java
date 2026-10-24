@@ -2,12 +2,18 @@ package com.axenix.blueprints.controller;
 
 import com.axenix.blueprints.model.Dto.*;
 import com.axenix.blueprints.model.Services.*;
+import com.axenix.blueprints.sandbox.InteractiveRunService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -27,16 +33,26 @@ public class ApiController {
     private final DecomposeService decomposeService;
     private final VerifyService verifyService;
     private final RunService runService;
+    private final Optional<InteractiveRunService> interactive;
+    private static final ObjectMapper JSON = new ObjectMapper();
+    // Ограниченный пул для потоков Quality Gate (лимит из error-fix_Jomo)
     private final ExecutorService streams = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(4), new ThreadPoolExecutor.AbortPolicy());
+    // Отдельный ограниченный пул для интерактивных запусков: сессия живёт долго и не должна занимать потоки Quality Gate
+    private final ExecutorService interactiveStreams = new ThreadPoolExecutor(4, 4, 0L, TimeUnit.MILLISECONDS,
             new ArrayBlockingQueue<>(4), new ThreadPoolExecutor.AbortPolicy());
 
     @PreDestroy
-    public void closeStreams() { streams.shutdownNow(); }
+    public void closeStreams() {
+        streams.shutdownNow();
+        interactiveStreams.shutdownNow();
+    }
 
     public ApiController(GraphService graphService, GraphEditService graphEditService,
                          AnalyzerService analyzerService, OptimizerService optimizerService,
                          DecomposeService decomposeService, VerifyService verifyService,
-                         RunService runService) {
+                         RunService runService,
+                         Optional<InteractiveRunService> interactive) {
         this.graphService = graphService;
         this.graphEditService = graphEditService;
         this.analyzerService = analyzerService;
@@ -44,6 +60,7 @@ public class ApiController {
         this.decomposeService = decomposeService;
         this.verifyService = verifyService;
         this.runService = runService;
+        this.interactive = interactive;
     }
 
     @GetMapping("/health")
@@ -124,5 +141,95 @@ public class ApiController {
     public RunResponse run(@RequestBody RunRequest req) {
         RequestLimits.run(req);
         return runService.run(req);
+    }
+
+    // ---------- интерактивная консоль: вывод по SSE, ввод отдельными запросами ----------
+
+    private static String json(Object v) {
+        try {
+            return JSON.writeValueAsString(v);
+        } catch (JsonProcessingException e) {
+            return "\"\"";
+        }
+    }
+
+    private InteractiveRunService interactiveService() {
+        return interactive.orElseThrow(() -> new IllegalStateException("Интерактивный запуск недоступен в этом профиле"));
+    }
+
+    /**
+     * Запуск с интерактивным вводом. Поток событий: «session» (id), «out»/«err» (JSON-строка с фрагментом вывода,
+     * без обязательного перевода строки), «compile-error» (JSON-строка), «exit» ({exitCode, millis, reason}), «error».
+     * Ввод: POST /run/session/{id}/stdin, остановка: DELETE /run/session/{id}.
+     */
+    @PostMapping(value = "/run/session", produces = "text/event-stream")
+    public SseEmitter runSession(@RequestBody RunRequest req) {
+        InteractiveRunService svc = interactiveService();
+        SseEmitter emitter = new SseEmitter(15 * 60_000L);
+        AtomicReference<String> sid = new AtomicReference<>();
+        Runnable kill = () -> svc.stop(sid.get());
+        emitter.onCompletion(kill);
+        emitter.onTimeout(kill);
+        emitter.onError(t -> kill.run());
+        try {
+            interactiveStreams.submit(() -> {
+            try {
+                svc.run(req, new InteractiveRunService.Listener() {
+                    private void send(String name, String data) {
+                        try {
+                            synchronized (emitter) {
+                                emitter.send(SseEmitter.event().name(name).data(data));
+                            }
+                        } catch (IOException | IllegalStateException e) {
+                            kill.run(); // клиент ушёл: программу больше никто не читает
+                        }
+                    }
+                    @Override public void onSession(String id) { sid.set(id); send("session", id); }
+                    @Override public void onCompileError(String output) { send("compile-error", json(output)); }
+                    @Override public void onOut(String text) { send("out", json(text)); }
+                    @Override public void onErr(String text) { send("err", json(text)); }
+                    @Override public void onExit(int exitCode, long millis, String reason) {
+                        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                        m.put("exitCode", exitCode);
+                        m.put("millis", millis);
+                        m.put("reason", reason);
+                        send("exit", json(m));
+                    }
+                });
+                emitter.complete();
+            } catch (Exception e) {
+                try {
+                    synchronized (emitter) {
+                        emitter.send(SseEmitter.event().name("error").data(json(String.valueOf(e.getMessage()))));
+                    }
+                } catch (IOException | IllegalStateException ignored) {
+                    // нечего сообщать закрытому потоку
+                }
+                emitter.complete();
+            }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException busy) {
+            try {
+                emitter.send(SseEmitter.event().name("error").data(json("Сервер занят запусками. Повторите позже.")));
+            } catch (IOException | IllegalStateException ignored) {
+                // клиент уже ушёл
+            }
+            emitter.complete();
+        }
+        return emitter;
+    }
+
+    /** Ввод в запущенную программу (текст с переводом строки) и/или признак конца ввода. */
+    @PostMapping("/run/session/{id}/stdin")
+    public Map<String, Object> runSessionStdin(@PathVariable("id") String id, @RequestBody StdinRequest in) {
+        interactiveService().sendInput(id, in.text(), in.eof());
+        return Map.of("ok", true);
+    }
+
+    /** Остановить программу. */
+    @DeleteMapping("/run/session/{id}")
+    public Map<String, Object> runSessionStop(@PathVariable("id") String id) {
+        interactiveService().stop(id);
+        return Map.of("ok", true);
     }
 }

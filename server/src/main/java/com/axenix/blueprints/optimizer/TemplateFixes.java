@@ -26,6 +26,7 @@ import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -256,6 +257,108 @@ public final class TemplateFixes {
     }
 
     /**
+     * Поиск одинаковых ключей во вложенном цикле с условием вида
+     * {@code a != b && a.key.equals(b.key)}. Два линейных прохода через Set
+     * сохраняют порядок исходного внешнего цикла: сначала собираются ключи,
+     * которые встречаются повторно, затем они добавляются в результат при
+     * первом появлении во внешнем порядке.
+     */
+    public static Optional<String> duplicatePairsToSet(CompilationUnit cu, int line) {
+        ForEachStmt outer = null;
+        for (ForEachStmt f : cu.findAll(ForEachStmt.class)) {
+            if (f.getRange().map(r -> r.begin.line).orElse(-1) == line) {
+                outer = f;
+                break;
+            }
+        }
+        if (outer == null || !(outer.getParentNode().orElse(null) instanceof BlockStmt outerBlock)
+                || !(outer.getBody() instanceof BlockStmt outerBody)) return Optional.empty();
+        Statement onlyOuter = outerBody.getStatements().size() == 1 ? outerBody.getStatement(0) : null;
+        if (!(onlyOuter instanceof ForEachStmt inner) || !(inner.getBody() instanceof BlockStmt innerBody)) return Optional.empty();
+        Statement onlyInner = innerBody.getStatements().size() == 1 ? innerBody.getStatement(0) : null;
+        if (!(onlyInner instanceof IfStmt match) || match.getElseStmt().isPresent()) return Optional.empty();
+        if (!(match.getCondition() instanceof BinaryExpr and) || and.getOperator() != BinaryExpr.Operator.AND) return Optional.empty();
+
+        String a = outer.getVariable().getVariable(0).getNameAsString();
+        String b = inner.getVariable().getVariable(0).getNameAsString();
+        Expression keyA = null;
+        Expression keyB = null;
+        boolean distinct = false;
+        for (Expression part : List.of(and.getLeft(), and.getRight())) {
+            if (part instanceof BinaryExpr neq && neq.getOperator() == BinaryExpr.Operator.NOT_EQUALS) {
+                String left = neq.getLeft().toString();
+                String right = neq.getRight().toString();
+                distinct = (left.equals(a) && right.equals(b)) || (left.equals(b) && right.equals(a));
+            }
+            if (part instanceof MethodCallExpr eq && eq.getNameAsString().equals("equals")
+                    && eq.getScope().isPresent() && eq.getArguments().size() == 1) {
+                Expression left = eq.getScope().get();
+                Expression right = eq.getArgument(0);
+                if (refs(left, a) && !refs(left, b) && refs(right, b) && !refs(right, a)) {
+                    keyA = left; keyB = right;
+                } else if (refs(right, a) && !refs(right, b) && refs(left, b) && !refs(left, a)) {
+                    keyA = right; keyB = left;
+                }
+            }
+        }
+        if (!distinct || keyA == null || keyB == null || !inner.getIterable().toString().equals(outer.getIterable().toString())) {
+            return Optional.empty();
+        }
+        CallableDeclaration<?> method = outer.findAncestor(CallableDeclaration.class).orElse(null);
+        if (method == null) return Optional.empty();
+
+        // Внутри условия должен быть ровно шаблон
+        // if (!duplicates.contains(key)) { duplicates.add(key); }.
+        Statement guardStatement = match.getThenStmt() instanceof BlockStmt block
+                && block.getStatements().size() == 1 ? block.getStatement(0) : null;
+        if (!(guardStatement instanceof IfStmt guard) || guard.getElseStmt().isPresent()
+                || !(guard.getCondition() instanceof UnaryExpr neg)
+                || neg.getOperator() != UnaryExpr.Operator.LOGICAL_COMPLEMENT
+                || !(neg.getExpression() instanceof MethodCallExpr contains)
+                || !contains.getNameAsString().equals("contains") || contains.getArguments().size() != 1
+                || contains.getScope().filter(Expression::isNameExpr).isEmpty()) return Optional.empty();
+        Statement addStatement = guard.getThenStmt() instanceof BlockStmt block
+                && block.getStatements().size() == 1 ? block.getStatement(0) : guard.getThenStmt();
+        MethodCallExpr add = addStatement instanceof ExpressionStmt es
+                && es.getExpression() instanceof MethodCallExpr mc ? mc : null;
+        if (add == null || !add.getNameAsString().equals("add") || add.getArguments().size() != 1
+                || add.getScope().filter(Expression::isNameExpr).isEmpty()) return Optional.empty();
+        if (contains == null || add == null || !contains.getScope().get().toString().equals(add.getScope().get().toString())
+                || !contains.getArgument(0).toString().equals(add.getArgument(0).toString())) return Optional.empty();
+        String result = contains.getScope().get().toString();
+        String src = outer.getIterable().toString();
+        String elem = outer.getVariable().getCommonType().toString();
+        String item = freshName(method, a);
+        String seen = freshName(method, "seenKeys");
+        String duplicate = freshName(method, "duplicateKeys");
+        String emitted = freshName(method, "emittedKeys");
+        String firstKey = replaceIdentifier(keyA.toString(), a, item);
+        JavaParser parser = new JavaParser();
+        Statement seenDecl = parseStmt(parser, "Set<Object> " + seen + " = new HashSet<>();");
+        Statement dupDecl = parseStmt(parser, "Set<Object> " + duplicate + " = new HashSet<>();");
+        Statement emitDecl = parseStmt(parser, "Set<Object> " + emitted + " = new HashSet<>();");
+        Statement scan = parseStmt(parser, "for (" + elem + " " + item + " : " + src + ") { if (!" + seen
+                + ".add(" + firstKey + ")) " + duplicate + ".add(" + firstKey + "); }");
+        Statement emit = parseStmt(parser, "for (" + elem + " " + item + " : " + src + ") { if (" + duplicate
+                + ".contains(" + firstKey + ") && " + emitted + ".add(" + firstKey + ")) " + result + ".add(" + firstKey + "); }");
+        if (seenDecl == null || dupDecl == null || emitDecl == null || scan == null || emit == null) return Optional.empty();
+        int at = outerBlock.getStatements().indexOf(outer);
+        outerBlock.getStatements().add(at, seenDecl);
+        outerBlock.getStatements().add(at + 1, dupDecl);
+        outerBlock.getStatements().add(at + 2, scan);
+        outerBlock.getStatements().add(at + 3, emitDecl);
+        outerBlock.getStatements().add(at + 4, emit);
+        outerBlock.getStatements().remove(outer);
+        ensureImport(cu, "java.util.Set");
+        ensureImport(cu, "java.util.HashSet");
+        return Optional.of("Вложенный поиск повторяющихся ключей заменён линейными проходами через HashSet: O(n²) → O(n).");
+    }
+
+    private static String replaceIdentifier(String text, String from, String to) {
+        return text.replaceAll("\\b" + java.util.regex.Pattern.quote(from) + "\\b", to);
+    }
+
+    /**
      * Вложенные foreach с сопоставлением по ключу:
      * <pre>
      * for (A a : xs) { for (B b : ys) { if (a.key.equals(b.key)) BODY } }
@@ -298,22 +401,32 @@ public final class TemplateFixes {
         Statement ib = inner.getBody();
         Statement only = ib instanceof BlockStmt blk ? (blk.getStatements().size() == 1 ? blk.getStatement(0) : null) : ib;
         if (!(only instanceof IfStmt iff) || iff.getElseStmt().isPresent()) return Optional.empty();
-        if (!(iff.getCondition() instanceof MethodCallExpr eq) || !eq.getNameAsString().equals("equals")
-                || eq.getScope().isEmpty() || eq.getArguments().size() != 1) return Optional.empty();
-        Expression s1 = eq.getScope().get();
-        Expression s2 = eq.getArgument(0);
-        Expression keyA;
-        Expression keyB;
-        if (refs(s1, a) && !refs(s1, b) && refs(s2, b) && !refs(s2, a)) {
-            keyA = s1;
-            keyB = s2;
-        } else if (refs(s2, a) && !refs(s2, b) && refs(s1, b) && !refs(s1, a)) {
-            keyA = s2;
-            keyB = s1;
-        } else {
-            return Optional.empty();
+        // условие — конъюнкция: ровно одно x.equals(y) даёт ключ, остальные части (например, a != b) остаются проверкой
+        List<Expression> conjuncts = new ArrayList<>();
+        flattenAnd(iff.getCondition(), conjuncts);
+        Expression keyA = null;
+        Expression keyB = null;
+        List<Expression> residual = new ArrayList<>();
+        for (Expression c : conjuncts) {
+            if (keyA == null && c instanceof MethodCallExpr eq && eq.getNameAsString().equals("equals")
+                    && eq.getScope().isPresent() && eq.getArguments().size() == 1) {
+                Expression s1 = eq.getScope().get();
+                Expression s2 = eq.getArgument(0);
+                if (refs(s1, a) && !refs(s1, b) && refs(s2, b) && !refs(s2, a)) {
+                    keyA = s1;
+                    keyB = s2;
+                    continue;
+                } else if (refs(s2, a) && !refs(s2, b) && refs(s1, b) && !refs(s1, a)) {
+                    keyA = s2;
+                    keyB = s1;
+                    continue;
+                }
+            }
+            residual.add(c);
         }
-        if (!keyA.findAll(MethodCallExpr.class).isEmpty() || !keyB.findAll(MethodCallExpr.class).isEmpty()) return Optional.empty();
+        if (keyA == null) return Optional.empty();
+        // остальные части проверяются только для совпавших по ключу пар: они обязаны быть без побочных эффектов
+        for (Expression r : residual) if (!pureCondition(r)) return Optional.empty();
         // ключ внутреннего элемента вычисляется вне внешнего цикла: только по b, без чужих имён и безымянных вызовов
         for (NameExpr n : keyB.findAll(NameExpr.class)) if (!n.getNameAsString().equals(b)) return Optional.empty();
         for (MethodCallExpr mc : keyB.findAll(MethodCallExpr.class)) if (mc.getScope().isEmpty()) return Optional.empty();
@@ -345,7 +458,16 @@ public final class TemplateFixes {
         Statement guard = parseStmt(parser, "if (" + matches + " != null) { for (" + elem + " " + b + " : " + matches + ") { } }");
         if (mapDecl == null || fill == null || lookup == null || guard == null) return Optional.empty();
         ForEachStmt newInner = guard.asIfStmt().getThenStmt().asBlockStmt().getStatement(0).asForEachStmt();
-        newInner.setBody(iff.getThenStmt().clone());
+        Statement innerBody = iff.getThenStmt().clone();
+        if (!residual.isEmpty()) {
+            Expression rest = residual.get(0).clone();
+            for (int k = 1; k < residual.size(); k++) {
+                rest = new com.github.javaparser.ast.expr.BinaryExpr(rest, residual.get(k).clone(),
+                        com.github.javaparser.ast.expr.BinaryExpr.Operator.AND);
+            }
+            innerBody = new IfStmt(rest, innerBody, null);
+        }
+        newInner.setBody(innerBody);
 
         int idx = body.getStatements().indexOf(inner);
         body.getStatements().add(idx, lookup);
@@ -587,6 +709,32 @@ public final class TemplateFixes {
             }
         }
         return false;
+    }
+
+    private static void flattenAnd(Expression e, List<Expression> out) {
+        Expression x = e;
+        while (x instanceof com.github.javaparser.ast.expr.EnclosedExpr en) x = en.getInner();
+        if (x instanceof com.github.javaparser.ast.expr.BinaryExpr be
+                && be.getOperator() == com.github.javaparser.ast.expr.BinaryExpr.Operator.AND) {
+            flattenAnd(be.getLeft(), out);
+            flattenAnd(be.getRight(), out);
+        } else {
+            out.add(e);
+        }
+    }
+
+    /** Условие без присваиваний, ++/--, вызовов методов, new и лямбд: его можно не вычислять для лишних пар. */
+    private static boolean pureCondition(Expression e) {
+        if (!e.findAll(AssignExpr.class).isEmpty() || !e.findAll(MethodCallExpr.class).isEmpty()
+                || !e.findAll(com.github.javaparser.ast.expr.ObjectCreationExpr.class).isEmpty()
+                || !e.findAll(com.github.javaparser.ast.expr.LambdaExpr.class).isEmpty()) return false;
+        for (UnaryExpr u : e.findAll(UnaryExpr.class)) {
+            switch (u.getOperator()) {
+                case PREFIX_INCREMENT, PREFIX_DECREMENT, POSTFIX_INCREMENT, POSTFIX_DECREMENT -> { return false; }
+                default -> { }
+            }
+        }
+        return true;
     }
 
     private static boolean refs(Expression e, String name) {

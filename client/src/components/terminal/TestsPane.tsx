@@ -114,8 +114,8 @@ export const TestsPane: React.FC = () => {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`w-full h-full bg-[#0c0c0e] flex flex-col p-3 overflow-hidden select-text text-xs relative transition-colors ${
-        isDragOver ? 'bg-blue-950/30 ring-2 ring-blue-500 ring-inset' : ''
+      className={`w-full h-full bg-surface flex flex-col p-3 overflow-hidden select-text text-xs relative transition-colors ${
+        isDragOver ? 'bg-[#f37022]/10 ring-2 ring-[#f37022] ring-inset' : ''
       }`}
     >
       {/* Hidden file input for .in files */}
@@ -151,25 +151,25 @@ export const TestsPane: React.FC = () => {
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-border rounded text-[11px] font-medium transition"
+            className="flex items-center gap-1 px-2.5 py-1 bg-surface-elevated hover:bg-surface text-zinc-300 border border-border rounded text-[11px] font-medium transition"
             title="Загрузить один или несколько файлов .in"
           >
-            <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
+            <UploadCloud className="w-3.5 h-3.5 text-[#f37022]" />
             <span>Загрузить .in</span>
           </button>
 
           <button
             onClick={() => setShowAddForm((v) => !v)}
-            className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-border rounded text-[11px] font-medium transition"
+            className="flex items-center gap-1 px-2.5 py-1 bg-surface-elevated hover:bg-surface text-zinc-300 border border-border rounded text-[11px] font-medium transition"
             title="Добавить тестовый сценарий со своим stdin"
           >
-            <Plus className="w-3.5 h-3.5 text-emerald-400" />
+            <Plus className="w-3.5 h-3.5 text-[#f37022]" />
             <span>{showAddForm ? 'Скрыть форму' : '+ Тест (stdin)'}</span>
           </button>
 
           <button
             onClick={resetDefaultTests}
-            className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded border border-border transition"
+            className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-surface-elevated rounded border border-border transition"
             title="Сбросить к стандартному набору тестов"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -190,11 +190,11 @@ export const TestsPane: React.FC = () => {
       {showAddForm && (
         <form
           onSubmit={handleCreateTest}
-          className="mb-3 p-3 bg-zinc-900/90 border border-blue-500/40 rounded-lg space-y-2.5 shadow-lg animate-in fade-in"
+          className="mb-3 p-3 bg-surface-elevated border border-[#f37022]/40 rounded-lg space-y-2.5 shadow-lg animate-in fade-in"
         >
           <div className="flex items-center justify-between">
             <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
-              <Terminal className="w-3.5 h-3.5 text-blue-400" />
+              <Terminal className="w-3.5 h-3.5 text-[#f37022]" />
               <span>Новый тестовый сценарий</span>
             </span>
             <span className="text-[10px] text-zinc-400">Входные данные передаются в System.in монолита</span>
@@ -208,7 +208,7 @@ export const TestsPane: React.FC = () => {
                 placeholder="testCustomInput"
                 value={newTestName}
                 onChange={(e) => setNewTestName(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-black border border-border rounded text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-blue-500 font-mono"
+                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-[#f37022] font-mono"
               />
             </div>
 
@@ -219,7 +219,7 @@ export const TestsPane: React.FC = () => {
                 placeholder={"Пример:\n3\n1 Иван 10.5\n2 Ольга 20.0\n3 Анна 50.0"}
                 value={newTestStdin}
                 onChange={(e) => setNewTestStdin(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-black border border-border rounded text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-blue-500 font-mono resize-y"
+                className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-[#f37022] font-mono resize-y"
               />
             </div>
           </div>
@@ -234,7 +234,7 @@ export const TestsPane: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium text-xs transition flex items-center gap-1.5"
+              className="px-3 py-1 bg-[#f37022] hover:bg-[#ff6500] text-white rounded font-medium text-xs transition flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Добавить в набор</span>
@@ -244,7 +244,7 @@ export const TestsPane: React.FC = () => {
       )}
 
       {/* Progress Bar */}
-      <div className="w-full h-1.5 bg-zinc-800 rounded-full mb-2.5 overflow-hidden shrink-0">
+      <div className="w-full h-1.5 bg-surface-elevated rounded-full mb-2.5 overflow-hidden shrink-0">
         <div
           className={`h-full transition-all duration-500 ${
             percent === 100 ? 'bg-emerald-500' : percent > 50 ? 'bg-amber-500' : 'bg-rose-500'
@@ -257,7 +257,7 @@ export const TestsPane: React.FC = () => {
       <div className="flex-1 overflow-y-auto pr-1">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-border/80 text-[11px] font-medium text-zinc-400 sticky top-0 bg-[#0c0c0e] z-10">
+            <tr className="border-b border-border text-[11px] font-medium text-zinc-400 sticky top-0 bg-surface z-10">
               <th className="py-1 px-2 w-8"></th>
               <th className="py-1 px-2">Тестовый сценарий</th>
               <th className="py-1 px-2">Статус поведения</th>
@@ -276,7 +276,7 @@ export const TestsPane: React.FC = () => {
                 <React.Fragment key={test.id}>
                   <tr
                     onClick={() => setExpandedId(isExpanded ? null : test.id)}
-                    className="hover:bg-zinc-900/60 cursor-pointer transition select-none group"
+                    className="hover:bg-surface-elevated/60 cursor-pointer transition select-none group"
                   >
                     <td className="py-1.5 px-2 text-zinc-500">
                       {isExpanded ? (
@@ -351,9 +351,9 @@ export const TestsPane: React.FC = () => {
 
                   {/* Expanded Stdin Editor Row */}
                   {isExpanded && (
-                    <tr className="bg-zinc-950/80">
+                    <tr className="bg-surface-elevated/40">
                       <td colSpan={5} className="p-3">
-                        <div className="space-y-2 border-l-2 border-blue-500 pl-3">
+                        <div className="space-y-2 border-l-2 border-[#f37022] pl-3">
                           <div className="flex items-center justify-between text-[11px] text-zinc-400">
                             <span className="font-semibold text-zinc-300">
                               Входные данные (stdin для System.in):
@@ -367,7 +367,7 @@ export const TestsPane: React.FC = () => {
                             rows={Math.min(8, Math.max(3, (test.stdin || '').split('\n').length + 1))}
                             value={test.stdin || ''}
                             onChange={(e) => updateTestCase(test.id, { stdin: e.target.value })}
-                            className="w-full px-2.5 py-1.5 bg-black border border-zinc-800 rounded text-xs text-zinc-200 font-mono focus:outline-none focus:border-blue-500"
+                            className="w-full px-2.5 py-1.5 bg-surface border border-border rounded text-xs text-zinc-200 font-mono focus:outline-none focus:border-[#f37022]"
                           />
 
                           {test.errorDetails && (
@@ -386,7 +386,7 @@ export const TestsPane: React.FC = () => {
                               onClick={() => {
                                 setExpandedId(null);
                               }}
-                              className="flex items-center gap-1 px-2.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded text-[11px] transition font-sans"
+                              className="flex items-center gap-1 px-2.5 py-0.5 bg-surface-elevated hover:bg-surface text-zinc-200 border border-border rounded text-[11px] transition font-sans"
                             >
                               <Save className="w-3 h-3 text-emerald-400" />
                               <span>Готово</span>

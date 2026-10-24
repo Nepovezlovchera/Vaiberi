@@ -12,9 +12,56 @@ export const MonacoEditorPane: React.FC = () => {
   // Выделение пришло из курсора редактора — не перескакиваем на узел
   const fromCursorRef = useRef(false);
 
+  const defineThemes = (monaco: any) => {
+    monaco.editor.defineTheme('axenix-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'keyword', foreground: 'f37022', fontStyle: 'bold' },
+        { token: 'type', foreground: 'c4a4e8' },
+        { token: 'string', foreground: '10b981' },
+        { token: 'comment', foreground: '6b6370', fontStyle: 'italic' },
+        { token: 'number', foreground: 'ff6500' },
+      ],
+      colors: {
+        'editor.background': '#120e16',
+        'editor.foreground': '#fdfcfb',
+        'editor.lineHighlightBackground': '#1a1520',
+        'editorCursor.foreground': '#f37022',
+        'editorLineNumber.foreground': '#5b5263',
+        'editorLineNumber.activeForeground': '#f37022',
+        'editor.selectionBackground': '#5f308c44',
+      },
+    });
+
+    monaco.editor.defineTheme('axenix-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: 'keyword', foreground: 'd35d25', fontStyle: 'bold' },
+        { token: 'type', foreground: '5f308c' },
+        { token: 'string', foreground: '047857' },
+        { token: 'comment', foreground: '8e8494', fontStyle: 'italic' },
+        { token: 'number', foreground: 'c5621b' },
+      ],
+      colors: {
+        'editor.background': '#ffffff',
+        'editor.foreground': '#080407',
+        'editor.lineHighlightBackground': '#f7f6f4',
+        'editorCursor.foreground': '#f37022',
+        'editorLineNumber.foreground': '#968e9b',
+        'editorLineNumber.activeForeground': '#f37022',
+        'editor.selectionBackground': '#5f308c22',
+      },
+    });
+  };
+
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+
+    defineThemes(monaco);
+    monaco.editor.setTheme(theme === 'dark' ? 'axenix-dark' : 'axenix-light');
 
     // Стилизация и настройки редактора
     editor.updateOptions({
@@ -93,14 +140,21 @@ export const MonacoEditorPane: React.FC = () => {
     ]);
   }, [activeLineRange]);
 
+  // Реакция на переключение темы
+  useEffect(() => {
+    if (monacoRef.current) {
+      monacoRef.current.editor.setTheme(theme === 'dark' ? 'axenix-dark' : 'axenix-light');
+    }
+  }, [theme]);
+
   return (
-    <div className="w-full h-full bg-[#18181b] flex flex-col overflow-hidden">
+    <div className="w-full h-full bg-surface flex flex-col overflow-hidden">
       <EditorTabs />
       <div className="flex-1 w-full h-[calc(100%-32px)] overflow-hidden">
         <Editor
           height="100%"
           defaultLanguage="java"
-          theme={theme === 'dark' ? 'vs-dark' : 'light'}
+          theme={theme === 'dark' ? 'axenix-dark' : 'axenix-light'}
           value={code}
           onChange={handleCodeChange}
           onMount={handleEditorMount}

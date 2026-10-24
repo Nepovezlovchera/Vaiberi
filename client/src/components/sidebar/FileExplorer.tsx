@@ -41,13 +41,13 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ item, level = 0 }) => {
       onClick={() => selectFile(item.id)}
       className={`flex items-center justify-between py-1 px-2 rounded cursor-pointer text-xs transition ${
         isSelected
-          ? 'bg-blue-600/20 text-blue-300 font-medium border-l-2 border-blue-500'
-          : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
+          ? 'bg-[#f37022]/15 text-[#f37022] dark:text-[#ff7b29] font-semibold border-l-2 border-[#f37022]'
+          : 'text-zinc-400 hover:text-zinc-200 hover:bg-surface-elevated/60'
       }`}
       style={{ paddingLeft: `${level * 12 + 16}px` }}
     >
       <div className="flex items-center gap-1.5 truncate">
-        <FileCode className={`w-3.5 h-3.5 ${isSelected ? 'text-blue-400' : 'text-zinc-400'}`} />
+        <FileCode className={`w-3.5 h-3.5 ${isSelected ? 'text-[#f37022]' : 'text-zinc-400'}`} />
         <span className="truncate">{item.name}</span>
       </div>
       {item.hasIssues && (

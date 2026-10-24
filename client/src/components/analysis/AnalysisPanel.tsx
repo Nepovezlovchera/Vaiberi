@@ -56,7 +56,7 @@ export const AnalysisPanel: React.FC = () => {
           onClick={() => setRightTab('issues')}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t transition border-b-2 ${
             rightTab === 'issues'
-              ? 'text-white border-blue-500 bg-surface'
+              ? 'text-zinc-100 border-[#f37022] bg-surface font-semibold'
               : 'text-zinc-400 border-transparent hover:text-zinc-200'
           }`}
         >
@@ -68,7 +68,7 @@ export const AnalysisPanel: React.FC = () => {
           onClick={() => setRightTab('recommendations')}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t transition border-b-2 ${
             rightTab === 'recommendations'
-              ? 'text-white border-blue-500 bg-surface'
+              ? 'text-zinc-100 border-[#f37022] bg-surface font-semibold'
               : 'text-zinc-400 border-transparent hover:text-zinc-200'
           }`}
         >
@@ -80,7 +80,7 @@ export const AnalysisPanel: React.FC = () => {
           onClick={() => setRightTab('metrics')}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t transition border-b-2 ${
             rightTab === 'metrics'
-              ? 'text-white border-blue-500 bg-surface'
+              ? 'text-zinc-100 border-[#f37022] bg-surface font-semibold'
               : 'text-zinc-400 border-transparent hover:text-zinc-200'
           }`}
         >
@@ -103,8 +103,8 @@ export const AnalysisPanel: React.FC = () => {
                   onClick={() => selectIssue(issue.id)}
                   className={`p-3 rounded-lg border text-xs cursor-pointer transition-all ${
                     isSelected
-                      ? 'border-blue-500 bg-blue-950/20 shadow-md ring-1 ring-blue-500/30'
-                      : 'border-border bg-surface-elevated/40 hover:border-zinc-600 hover:bg-surface-elevated/80'
+                      ? 'border-[#f37022] bg-[#f37022]/10 shadow-md ring-1 ring-[#f37022]/30'
+                      : 'border-border bg-surface-elevated/40 hover:border-zinc-500 hover:bg-surface-elevated/80'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1.5">
@@ -148,7 +148,7 @@ export const AnalysisPanel: React.FC = () => {
 
                   <div className="pt-2 border-t border-border/40 text-[10px] text-zinc-400 flex items-start gap-1 mb-2">
                     <span className="text-zinc-500 font-semibold shrink-0">Решение:</span>
-                    <span className="text-blue-300">{issue.recommendation}</span>
+                    <span className="text-[#f37022] dark:text-[#ff7b29] font-medium">{issue.recommendation}</span>
                   </div>
 
                   {/* Diff Preview Accordion (Слайд 5 ТЗ) */}
@@ -157,7 +157,7 @@ export const AnalysisPanel: React.FC = () => {
                       onClick={(e) => toggleDiff(issue.id, e)}
                       className="flex items-center justify-between w-full text-[10px] text-zinc-400 hover:text-zinc-200 transition py-0.5"
                     >
-                      <span className="flex items-center gap-1 font-medium text-blue-400">
+                      <span className="flex items-center gap-1 font-medium text-[#f37022] dark:text-[#ff7b29]">
                         <GitCompare className="w-3 h-3" />
                         <span>Сравнить код (Diff Preview)</span>
                       </span>
@@ -169,7 +169,7 @@ export const AnalysisPanel: React.FC = () => {
                     </button>
 
                     {expandedDiffs[issue.id] && (
-                      <div className="mt-1.5 p-2 bg-[#09090b] rounded border border-zinc-800/80 space-y-1.5">
+                      <div className="mt-1.5 p-2 bg-surface rounded border border-border space-y-1.5">
                         <div>
                           <div className="text-[9px] font-sans font-semibold text-rose-400 uppercase tracking-wider mb-0.5">
                             Было (Квадратичный перебор O(n²)):
@@ -206,7 +206,7 @@ export const AnalysisPanel: React.FC = () => {
                         optimizeSingleIssue(issue.id);
                       }}
                       disabled={isCompiling}
-                      className="px-2 py-1 rounded bg-blue-950/80 hover:bg-blue-900 border border-blue-500/50 text-[10px] font-semibold text-blue-300 transition flex items-center gap-1 shadow hover:scale-105 active:scale-95"
+                      className="px-2 py-1 rounded bg-[#f37022]/15 hover:bg-[#f37022]/25 border border-[#f37022]/50 text-[10px] font-semibold text-[#f37022] dark:text-[#ff7b29] transition flex items-center gap-1 shadow hover:scale-105 active:scale-95"
                       title="Применить точечное исправление по Слайду 5 ТЗ"
                     >
                       <Sparkles className="w-3 h-3 text-amber-300" />
@@ -288,12 +288,12 @@ export const AnalysisPanel: React.FC = () => {
       <div className="p-3 bg-surface-elevated/80 border-t border-border space-y-2.5">
         <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
           <span className="flex items-center gap-1.5">
-            <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
+            <TrendingUp className="w-3.5 h-3.5 text-[#f37022]" />
             <span>Сложность алгоритма:</span>
           </span>
         </div>
 
-        <div className="flex items-center justify-between px-3 py-2 bg-zinc-900 border border-border rounded-lg text-xs font-mono">
+        <div className="flex items-center justify-between px-3 py-2 bg-surface border border-border rounded-lg text-xs font-mono">
           <span className="text-zinc-400">
             Текущая: <span className={`font-bold ${isOptimized ? 'text-emerald-400' : 'text-rose-400'}`}>{metrics.current}</span>
           </span>
@@ -314,9 +314,9 @@ export const AnalysisPanel: React.FC = () => {
           <button
             onClick={runOptimization}
             disabled={isCompiling}
-            className="w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg font-semibold text-xs transition shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2"
+            className="w-full py-2 bg-[#f37022] hover:bg-[#ff6500] active:bg-[#c5621b] text-white rounded-lg font-semibold text-xs transition shadow-md shadow-[#f37022]/20 flex items-center justify-center gap-2"
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <Sparkles className="w-3.5 h-3.5 text-white" />
             <span>{isCompiling ? 'Оптимизация...' : 'Оптимизировать O(n²) → O(n)'}</span>
           </button>
         )}

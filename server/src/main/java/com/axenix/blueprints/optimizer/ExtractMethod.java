@@ -16,6 +16,9 @@ import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.CatchClause;
+import com.github.javaparser.ast.stmt.SwitchEntry;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
 import com.github.javaparser.ast.stmt.ContinueStmt;
 import com.github.javaparser.ast.stmt.DoStmt;
@@ -31,6 +34,7 @@ import com.github.javaparser.ast.stmt.YieldStmt;
 import com.github.javaparser.ast.type.Type;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -59,6 +63,9 @@ import java.util.stream.Collectors;
  */
 public final class ExtractMethod {
 
+    // Небольшие блоки нужны для повторного запуска автофикса на уже созданном
+    // Part-методе: после первого извлечения в нём часто остаётся 3–4 строки
+    // безопасной логики, которую также можно вынести.
     private static final int MIN_SEGMENT_LINES = 3;
 
     private ExtractMethod() {}
@@ -70,41 +77,112 @@ public final class ExtractMethod {
             return Optional.empty();
         }
         BlockStmt body = m.getBody().get();
-        List<Statement> st = new ArrayList<>(body.getStatements());
         int methodSpan = span(m);
-        Plan best = null;
-        long bestScore = -1;
-        for (int i = 0; i < st.size(); i++) {
-            for (int j = i; j < st.size(); j++) {
-                int seg = span(st.get(i), st.get(j));
-                if (seg < MIN_SEGMENT_LINES || seg >= methodSpan - 2) continue;
-                long score = Math.min(seg, methodSpan - seg);
-                if (score <= bestScore) continue;
-                Plan p = plan(m, st, i, j);
-                if (p != null) {
-                    best = p;
-                    bestScore = score;
-                }
-            }
-        }
-        if (best == null) {
+        // Сначала операторы верхнего уровня; если подходящей серии нет (весь метод — один большой цикл/try),
+        // спускаемся во вложенные блоки (тела циклов, if, try), самые крупные первыми.
+        List<BlockStmt> containers = new ArrayList<>();
+        containers.add(body);
+        body.findAll(BlockStmt.class).stream()
+                .filter(b -> b != body && span(b) >= MIN_SEGMENT_LINES + 2 && isPlainNested(b, m))
+                .sorted(Comparator.comparingInt((BlockStmt b) -> span(b)).reversed())
+                .forEach(containers::add);
+        for (BlockStmt c : containers) {
+            List<Statement> st = new ArrayList<>(c.getStatements());
+            // серии без возврата значений или с одним значением предпочтительнее: класс-результат — запасной вариант
+            Plan best = null;
+            long bestScore = -1;
+            Plan bestMulti = null;
+            long bestMultiScore = -1;
             for (int i = 0; i < st.size(); i++) {
-                Plan p = plan(m, st, i, i);
-                if (p != null && span(st.get(i)) > 0) {
-                    best = p;
-                    break;
+                for (int j = i; j < st.size(); j++) {
+                    int seg = span(st.get(i), st.get(j));
+                    if (seg < MIN_SEGMENT_LINES || seg >= methodSpan - 2) continue;
+                    // во вложенном блоке вынос ВСЕГО содержимого лишь переносит сложность в другой метод
+                    if (c != body && i == 0 && j == st.size() - 1) continue;
+                    long score = Math.min(seg, methodSpan - seg);
+                    if (score <= bestScore && score <= bestMultiScore) continue;
+                    Plan p = plan(m, c, st, i, j);
+                    if (p == null) continue;
+                    if (p.outs().size() > 1) {
+                        if (score > bestMultiScore) {
+                            bestMulti = p;
+                            bestMultiScore = score;
+                        }
+                    } else if (score > bestScore) {
+                        best = p;
+                        bestScore = score;
+                    }
                 }
             }
+            if (best == null) best = bestMulti;
+            if (best != null) return Optional.of(build(m, c, st, best));
         }
-        if (best == null) return Optional.empty();
-        return Optional.of(build(m, body, st, best));
+        return Optional.empty();
+    }
+
+    /** Вложенный блок не внутри лямбды, анонимного/локального класса и не в ветке switch (там сложнее область видимости). */
+    private static boolean isPlainNested(BlockStmt b, MethodDeclaration m) {
+        for (Node c = b.getParentNode().orElse(null); c != null && c != m; c = c.getParentNode().orElse(null)) {
+            if (c instanceof LambdaExpr || c instanceof ObjectCreationExpr || c instanceof LocalClassDeclarationStmt
+                    || c instanceof SwitchEntry) return false;
+        }
+        return true;
+    }
+
+    /** Переменные, видимые перед позицией {@code from} в блоке {@code container}: параметры метода и объявления снаружи. */
+    private static Map<String, Type> visibleBefore(MethodDeclaration m, BlockStmt container, int from, Set<String> uninit) {
+        List<Map.Entry<String, Type>> rev = new ArrayList<>();
+        Node node = container;
+        int upTo = from;
+        while (node != null && node != m) {
+            if (node instanceof BlockStmt blk) {
+                List<Statement> sts = blk.getStatements();
+                for (int k = Math.min(upTo, sts.size()) - 1; k >= 0; k--) {
+                    if (sts.get(k) instanceof ExpressionStmt es && es.getExpression() instanceof VariableDeclarationExpr vd) {
+                        for (int q = vd.getVariables().size() - 1; q >= 0; q--) {
+                            VariableDeclarator d = vd.getVariable(q);
+                            rev.add(Map.entry(d.getNameAsString(), d.getType()));
+                            if (d.getInitializer().isEmpty()) uninit.add(d.getNameAsString());
+                        }
+                    }
+                }
+            }
+            Node parent = node.getParentNode().orElse(null);
+            if (parent instanceof ForStmt f) {
+                for (var init : f.getInitialization()) {
+                    if (init instanceof VariableDeclarationExpr vd) {
+                        for (VariableDeclarator d : vd.getVariables()) rev.add(Map.entry(d.getNameAsString(), d.getType()));
+                    }
+                }
+            } else if (parent instanceof ForEachStmt fe) {
+                for (VariableDeclarator d : fe.getVariable().getVariables()) rev.add(Map.entry(d.getNameAsString(), d.getType()));
+            } else if (parent instanceof CatchClause cc) {
+                rev.add(Map.entry(cc.getParameter().getNameAsString(), cc.getParameter().getType()));
+            } else if (parent instanceof TryStmt ts && ts.getTryBlock() == node) {
+                for (var r : ts.getResources()) {
+                    if (r instanceof VariableDeclarationExpr vd) {
+                        for (VariableDeclarator d : vd.getVariables()) rev.add(Map.entry(d.getNameAsString(), d.getType()));
+                    }
+                }
+            }
+            if (parent instanceof BlockStmt pb) upTo = pb.getStatements().indexOf(node);
+            node = parent;
+        }
+        Map<String, Type> outer = new LinkedHashMap<>();
+        for (Parameter pr : m.getParameters()) outer.put(pr.getNameAsString(), pr.getType());
+        for (int k = rev.size() - 1; k >= 0; k--) outer.put(rev.get(k).getKey(), rev.get(k).getValue());
+        return outer;
     }
 
     // ---------------------------------------------------------------- planning
 
-    private record Plan(int from, int to, Map<String, Type> params, String outName, Type outType, boolean outDeclaredInside) {}
+    /** outs — значения, нужные после серии (имя → тип); inside — какие из них объявлены внутри серии. */
+    private record Plan(int from, int to, Map<String, Type> params, Map<String, Type> outs, Set<String> inside) {}
 
-    private static Plan plan(MethodDeclaration m, List<Statement> st, int from, int to) {
+    private static final int MAX_OUTS = 10;
+
+    private static Plan plan(MethodDeclaration m, BlockStmt container, List<Statement> st, int from, int to) {
+        boolean topLevel = container == m.getBody().orElse(null);
         List<Statement> seg = st.subList(from, to + 1);
 
         // 1. запрещённые конструкции
@@ -122,17 +200,8 @@ public final class ExtractMethod {
         }
 
         // 2. переменные, видимые до серии (параметры + объявления верхнего уровня до неё), в порядке объявления
-        Map<String, Type> outer = new LinkedHashMap<>();
         Set<String> uninit = new HashSet<>();
-        for (Parameter p : m.getParameters()) outer.put(p.getNameAsString(), p.getType());
-        for (int k = 0; k < from; k++) {
-            if (st.get(k) instanceof ExpressionStmt es && es.getExpression() instanceof VariableDeclarationExpr vd) {
-                for (VariableDeclarator d : vd.getVariables()) {
-                    outer.put(d.getNameAsString(), d.getType());
-                    if (d.getInitializer().isEmpty()) uninit.add(d.getNameAsString());
-                }
-            }
-        }
+        Map<String, Type> outer = visibleBefore(m, container, from, uninit);
 
         // 3. что серия читает/пишет
         Set<String> used = new HashSet<>();
@@ -158,6 +227,16 @@ public final class ExtractMethod {
         for (int k = to + 1; k < st.size(); k++) {
             for (NameExpr n : st.get(k).findAll(NameExpr.class)) usedAfter.add(n.getNameAsString());
         }
+        // Во вложенном блоке (например, теле цикла) значение внешней переменной может понадобиться и вне серии:
+        // на следующей итерации или после цикла — считаем «нужным после» любое упоминание вне серии.
+        Set<String> usedOutside = new HashSet<>(usedAfter);
+        if (!topLevel) {
+            for (NameExpr n : m.findAll(NameExpr.class)) {
+                boolean inside = false;
+                for (Statement s : seg) if (isDescendant(n, s)) inside = true;
+                if (!inside) usedOutside.add(n.getNameAsString());
+            }
+        }
         Map<String, Type> declaredInside = new LinkedHashMap<>();
         for (Statement s : seg) {
             if (s instanceof ExpressionStmt es && es.getExpression() instanceof VariableDeclarationExpr vd) {
@@ -169,27 +248,49 @@ public final class ExtractMethod {
                 }
             }
         }
-        List<String> outs = new ArrayList<>();
-        for (String a : assigned) if (params.containsKey(a) && usedAfter.contains(a)) outs.add(a);
-        outs.addAll(declaredInside.keySet());
-        if (outs.size() > 1) return null;
+        Map<String, Type> outs = new LinkedHashMap<>();
+        Set<String> inside = new HashSet<>();
+        for (String a : params.keySet()) if (assigned.contains(a) && usedOutside.contains(a)) outs.put(a, params.get(a));
+        for (Map.Entry<String, Type> e : declaredInside.entrySet()) {
+            outs.put(e.getKey(), e.getValue());
+            inside.add(e.getKey());
+        }
+        if (outs.size() > MAX_OUTS) return null;
+        if (outs.size() > 1) {
+            // несколько значений возвращаем через маленький класс-результат: только в обычном классе, без дженериков,
+            // и вынос не должен быть почти всем методом (иначе новый метод сам станет длинным)
+            TypeDeclaration<?> owner = (TypeDeclaration<?>) m.getParentNode().get();
+            if (!(owner instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration cd) || cd.isInterface()) return null;
+            if (!m.getTypeParameters().isEmpty()) return null;
+            int segSpan = span(st.get(from), st.get(to));
+            if (segSpan * 2 > span(m) + 2) return null;
+            for (Type t : outs.values()) if (t.isVarType()) return null;
+        }
         // переменная, объявленная в серии не на верхнем уровне (например, в for) и нужная после, невозможна — Java не пустит.
-        if (outs.isEmpty()) return new Plan(from, to, params, null, null, false);
-        String o = outs.get(0);
-        boolean inside = declaredInside.containsKey(o);
-        return new Plan(from, to, params, o, inside ? declaredInside.get(o) : params.get(o), inside);
+        return new Plan(from, to, params, outs, inside);
     }
 
     // ---------------------------------------------------------------- building
 
     private static String build(MethodDeclaration m, BlockStmt body, List<Statement> st, Plan p) {
+        // body — блок, из которого вырезается серия (тело метода или вложенный блок)
         TypeDeclaration<?> owner = (TypeDeclaration<?>) m.getParentNode().get();
         Set<String> names = owner.getMethods().stream().map(MethodDeclaration::getNameAsString).collect(Collectors.toSet());
-        String base = m.getNameAsString() + "Part";
+        String base = m.getNameAsString().replaceAll("Part\\d+$", "") + "Part";
         String name = base + 1;
         for (int k = 2; names.contains(name); k++) name = base + k;
 
-        String ret = p.outType() == null ? "void" : p.outType().toString();
+        boolean multi = p.outs().size() > 1;
+        String holder = null;
+        if (multi) {
+            Set<String> members = owner.getMembers().stream()
+                    .filter(x -> x instanceof TypeDeclaration<?>).map(x -> ((TypeDeclaration<?>) x).getNameAsString())
+                    .collect(Collectors.toSet());
+            String hbase = Character.toUpperCase(name.charAt(0)) + name.substring(1) + "Result";
+            holder = hbase;
+            for (int k = 2; members.contains(holder); k++) holder = hbase + k;
+        }
+        String ret = p.outs().isEmpty() ? "void" : multi ? holder : p.outs().values().iterator().next().toString();
         String args = String.join(", ", p.params().keySet());
         String decl = p.params().entrySet().stream().map(e -> e.getValue() + " " + e.getKey()).collect(Collectors.joining(", "));
         String typeParams = m.getTypeParameters().isEmpty() ? "" : "<" + m.getTypeParameters().stream()
@@ -207,23 +308,55 @@ public final class ExtractMethod {
         int firstLine = st.get(p.from()).getBegin().map(b -> b.line).orElse(0);
         int lastLine = st.get(p.to()).getEnd().map(e -> e.line).orElse(0);
         for (int k = p.from(); k <= p.to(); k++) hb.addStatement(st.get(k).clone());
-        if (p.outName() != null) hb.addStatement(new ReturnStmt(new NameExpr(p.outName())));
+        BodyDeclaration<?> holderClass = null;
+        if (multi) {
+            String fields = p.outs().entrySet().stream().map(e -> "final " + e.getValue() + " " + e.getKey() + ";")
+                    .collect(Collectors.joining(" "));
+            String ctorParams = p.outs().entrySet().stream().map(e -> e.getValue() + " " + e.getKey())
+                    .collect(Collectors.joining(", "));
+            String assigns = p.outs().keySet().stream().map(n -> "this." + n + " = " + n + ";").collect(Collectors.joining(" "));
+            ParseResult<BodyDeclaration<?>> hr = parser.parseBodyDeclaration("private static final class " + holder + " { "
+                    + fields + " " + holder + "(" + ctorParams + ") { " + assigns + " } }");
+            if (!hr.isSuccessful() || hr.getResult().isEmpty()) return failure();
+            holderClass = hr.getResult().get();
+            hb.addStatement(new ReturnStmt(parser.parseExpression("new " + holder + "(" + String.join(", ", p.outs().keySet()) + ")")
+                    .getResult().orElseThrow()));
+        } else if (!p.outs().isEmpty()) {
+            hb.addStatement(new ReturnStmt(new NameExpr(p.outs().keySet().iterator().next())));
+        }
 
         String call = name + "(" + args + ")";
-        String callStmt;
-        if (p.outName() == null) callStmt = call + ";";
-        else if (p.outDeclaredInside()) callStmt = p.outType() + " " + p.outName() + " = " + call + ";";
-        else callStmt = p.outName() + " = " + call + ";";
-        Statement replacement = parser.parseStatement(callStmt).getResult().orElse(null);
-        if (replacement == null) return failure();
+        List<Statement> replacement = new ArrayList<>();
+        if (p.outs().isEmpty()) {
+            replacement.add(parser.parseStatement(call + ";").getResult().orElse(null));
+        } else if (!multi) {
+            String o = p.outs().keySet().iterator().next();
+            replacement.add(parser.parseStatement((p.inside().contains(o) ? p.outs().get(o) + " " : "") + o + " = " + call + ";")
+                    .getResult().orElse(null));
+        } else {
+            Set<String> used = m.findAll(com.github.javaparser.ast.expr.SimpleName.class).stream()
+                    .map(com.github.javaparser.ast.expr.SimpleName::asString).collect(Collectors.toSet());
+            String res = "result";
+            for (int k = 2; used.contains(res); k++) res = "result" + k;
+            replacement.add(parser.parseStatement(holder + " " + res + " = " + call + ";").getResult().orElse(null));
+            for (Map.Entry<String, Type> e : p.outs().entrySet()) {
+                String pre = p.inside().contains(e.getKey()) ? e.getValue() + " " : "";
+                replacement.add(parser.parseStatement(pre + e.getKey() + " = " + res + "." + e.getKey() + ";")
+                        .getResult().orElse(null));
+            }
+        }
+        if (replacement.stream().anyMatch(java.util.Objects::isNull)) return failure();
 
         for (int k = p.to(); k >= p.from(); k--) body.getStatements().remove(st.get(k));
-        body.getStatements().add(p.from(), replacement);
+        for (int k = 0; k < replacement.size(); k++) body.getStatements().add(p.from() + k, replacement.get(k));
         int idx = owner.getMembers().indexOf(m);
         owner.getMembers().add(idx + 1, helper);
+        if (holderClass != null) owner.getMembers().add(idx + 2, holderClass);
+        String outsText = p.outs().isEmpty() ? "" : multi
+                ? ", возвращает " + p.outs().size() + " значений через класс «" + holder + "»"
+                : ", возвращает «" + p.outs().keySet().iterator().next() + "»";
         return "Выделен метод «" + name + "» из «" + m.getNameAsString() + "» (строки " + firstLine + "–" + lastLine + ")"
-                + (p.params().isEmpty() ? "" : ", параметры: " + args)
-                + (p.outName() == null ? "" : ", возвращает «" + p.outName() + "»") + ".";
+                + (p.params().isEmpty() ? "" : ", параметры: " + args) + outsText + ".";
     }
 
     private static String failure() {
@@ -242,6 +375,11 @@ public final class ExtractMethod {
             if (best == null || span(m) < span(best)) best = m;
         }
         return best;
+    }
+
+    private static boolean isDescendant(Node n, Node root) {
+        for (Node c = n; c != null; c = c.getParentNode().orElse(null)) if (c == root) return true;
+        return false;
     }
 
     private static int span(Node n) {

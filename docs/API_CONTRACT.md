@@ -47,5 +47,14 @@ complexityAfter, testResults[{name, status: PASSED|FAILED|TIMEOUT|COMPILE_ERROR,
 ## POST /api/run
 `{ files, mainClass?, stdin? }` → `{ compiled, compileOutput, stdout, stderr, exitCode, timedOut, durationMs }`.
 
+## POST /api/run/session — интерактивная консоль
+Тело как у `/api/run` (без `stdin`). Ответ — SSE: `session` (id), `out`/`err` (JSON-строка с фрагментом вывода; приглашения
+без перевода строки приходят сразу), `compile-error` (JSON-строка), `exit` (`{exitCode, millis, reason}`, `reason`:
+`null` | `idle` | `max-time` | `output-limit` | `stopped`), `error`.
+Ввод: `POST /api/run/session/{id}/stdin` `{ text, eof }` (`eof: true` закрывает stdin, как Ctrl+D);
+остановка: `DELETE /api/run/session/{id}`.
+Лимиты: простой без ввода/вывода 120 с (`blueprints.interactive.idle-ms`), общее время 10 мин (`blueprints.interactive.max-ms`),
+вывод 1 000 000 символов, до 5 одновременных сессий.
+
 ## Профиль заглушек
 `--spring.profiles.active=stub` — все эндпоинты отдают моки для работы фронта без бэкенда.

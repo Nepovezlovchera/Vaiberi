@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -34,26 +35,25 @@ public class ProcessRunner {
         this.heap = heap;
     }
 
-    public RunResult run(Path classesDir, String mainClass, String stdin) throws IOException, InterruptedException {
-        if (!SLOTS.tryAcquire(1, TimeUnit.SECONDS)) throw new IllegalStateException("Сервер занят запусками");
-        try {
-            return runIsolated(classesDir, mainClass, stdin);
-        } finally {
-            SLOTS.release();
-        }
-    }
-
-    private RunResult runIsolated(Path classesDir, String mainClass, String stdin) throws IOException, InterruptedException {
+    /**
+     * Команда запуска пользовательского класса в отдельной JVM (общая для пакетного и интерактивного запуска):
+     * политика безопасности, ограничения JVM и чистое окружение процесса.
+     */
+    public ProcessBuilder newProcessBuilder(Path classesDir, String mainClass) {
         classesDir = classesDir.toAbsolutePath().normalize();
         String classesUrl = classesDir.toUri().toASCIIString();
         if (!classesUrl.endsWith("/")) classesUrl += "/";
         Path policy = classesDir.resolveSibling("runner.policy");
         String permissionPath = classesDir.toString().replace("\\", "\\\\").replace("\"", "\\\"");
-        Files.writeString(policy, "grant codeBase \"" + classesUrl + "-\" {\n"
-                + "permission java.io.FilePermission \"" + permissionPath + java.io.File.separator.replace("\\", "\\\\") + "-\", \"read,write,delete\";\n"
-                + "permission java.util.PropertyPermission \"*\", \"read\";\n"
-                + "permission java.lang.RuntimePermission \"exitVM.*\";\n"
-                + "};\n", StandardCharsets.UTF_8);
+        try {
+            Files.writeString(policy, "grant codeBase \"" + classesUrl + "-\" {\n"
+                    + "permission java.io.FilePermission \"" + permissionPath + java.io.File.separator.replace("\\", "\\\\") + "-\", \"read,write,delete\";\n"
+                    + "permission java.util.PropertyPermission \"*\", \"read\";\n"
+                    + "permission java.lang.RuntimePermission \"exitVM.*\";\n"
+                    + "};\n", StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
         List<String> cmd = new ArrayList<>();
         cmd.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
         cmd.add("-Xmx" + heap);
@@ -78,8 +78,8 @@ public class ProcessRunner {
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(classesDir.toFile());
-        // чтобы чужие JVM-опции не попадали в stderr пользовательской программы
-        // Do not inherit credentials, proxy settings, or arbitrary JVM options from the server.
+        // Do not inherit credentials, proxy settings, or arbitrary JVM options from the server
+        // (в том числе JAVA_TOOL_OPTIONS и т.п. — они не должны попадать в stderr пользовательской программы).
         String javaHome = System.getProperty("java.home");
         pb.environment().clear();
         pb.environment().put("PATH", Path.of(javaHome, "bin").toString());
@@ -88,6 +88,20 @@ public class ProcessRunner {
         pb.environment().put("LANG", "C.UTF-8");
         pb.environment().put("LC_ALL", "C.UTF-8");
         pb.environment().put("HOME", classesDir.toString());
+        return pb;
+    }
+
+    public RunResult run(Path classesDir, String mainClass, String stdin) throws IOException, InterruptedException {
+        if (!SLOTS.tryAcquire(1, TimeUnit.SECONDS)) throw new IllegalStateException("Сервер занят запусками");
+        try {
+            return runIsolated(classesDir, mainClass, stdin);
+        } finally {
+            SLOTS.release();
+        }
+    }
+
+    private RunResult runIsolated(Path classesDir, String mainClass, String stdin) throws IOException, InterruptedException {
+        ProcessBuilder pb = newProcessBuilder(classesDir, mainClass);
 
         long t0 = System.nanoTime();
         Process p = pb.start();
@@ -157,8 +171,8 @@ public class ProcessRunner {
 
         String text() {
             synchronized (buf) {
-                // \u041D\u0430 Windows println \u043F\u0438\u0448\u0435\u0442 \r\n: \u043F\u0440\u0438\u0432\u043E\u0434\u0438\u043C \u043A \n, \u0447\u0442\u043E\u0431\u044B \u0432\u044B\u0432\u043E\u0434 \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0435\u043B \u043E\u0442 \u041E\u0421 \u0441\u0435\u0440\u0432\u0435\u0440\u0430
-                return buf.toString(StandardCharsets.UTF_8).replace("\uFEFF", "").replace("\r\n", "\n");
+                // На Windows println пишет \r\n: приводим к \n, чтобы вывод не зависел от ОС сервера
+                return buf.toString(StandardCharsets.UTF_8).replace("﻿", "").replace("\r\n", "\n");
             }
         }
 
