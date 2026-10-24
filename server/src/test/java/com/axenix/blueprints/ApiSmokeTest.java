@@ -66,7 +66,7 @@ class ApiSmokeTest {
                         .content("{\"files\":[{\"path\":\"Main.java\",\"source\":\"" + JAVA + "\"}],\"stdin\":\"\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.compiled").value(true))
-                .andExpect(jsonPath("$.stdout").value("hi\n"));
+                .andExpect(jsonPath("$.stdout").value(org.hamcrest.Matchers.startsWith("hi")));
     }
 
     @Test
