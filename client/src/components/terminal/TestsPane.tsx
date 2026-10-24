@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { gatePassed } from '../../store/verification';
 import { useStudioStore } from '../../store/useStudioStore';
 import {
   CheckCircle2,
@@ -19,6 +20,7 @@ import {
 
 export const TestsPane: React.FC = () => {
   const {
+    verificationReport,
     tests,
     isRunningTests,
     runTests,
@@ -118,6 +120,12 @@ export const TestsPane: React.FC = () => {
         isDragOver ? 'bg-blue-950/30 ring-2 ring-blue-500 ring-inset' : ''
       }`}
     >
+      {verificationReport && (
+        <div className="mb-2 text-xs break-words">
+          <strong>{gatePassed(verificationReport) ? 'Quality Gate PASSED' : 'Quality Gate FAILED'}</strong>
+          {verificationReport.compileOutput && <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap text-rose-300">{verificationReport.compileOutput}</pre>}
+        </div>
+      )}
       {/* Hidden file input for .in files */}
       <input
         ref={fileInputRef}
@@ -140,9 +148,9 @@ export const TestsPane: React.FC = () => {
             {passedCount} из {totalCount} ({percent}%)
           </span>
 
-          {isOptimized && (
+          {verificationReport && gatePassed(verificationReport) && (
             <span className="px-2 py-0.5 rounded bg-blue-950/80 border border-blue-500/40 text-blue-300 font-semibold text-[11px]">
-              ⚡ Ускорение 5.2x
+              Замер: {verificationReport.speedup}
             </span>
           )}
         </div>

@@ -3,7 +3,6 @@ import { Node, Edge } from '@xyflow/react';
 import { FileItem, CodeIssue, ComplexityMetrics, TestCaseResult, MethodInfo, SyncStatus, FileTab } from '../types/studio';
 import {
   INITIAL_JAVA_CODE,
-  OPTIMIZED_JAVA_CODE,
   INITIAL_FILES,
   INITIAL_ISSUES,
   INITIAL_METRICS,
@@ -12,8 +11,11 @@ import {
   INITIAL_TESTS,
 } from './mockData';
 import { SAMPLE_MONOLITH_CODE, SAMPLE_MONOLITH_TESTS } from './monolithData';
-import { ApiClient, ApiError, MethodGraphResponseDto, MutateRequestDto } from '../api/apiClient';
+import { ApiClient, ApiError, MethodGraphResponseDto, MutateRequestDto, ProjectFileDto } from '../api/apiClient';
 import { connectPlacement, isEntryNode, moveAfter, moveInside, nodeIdAt, paletteSnippet, placeAfter, placeInside } from './graphEdits';
+import { flattenFiles, projectFiles, projectView, sourcePath } from './projectFiles';
+import { gatePassed, reportedTests } from './verification';
+import { VerificationReport } from '../types/studio';
 import { methodToFlow, methodOfNode, pickInitialMethod, toIssues, toMethodInfos, toMetrics } from './graphMapper';
 
 // Client-side Security: Ring Buffer limit for console to prevent DOM freeze (Client-side DoS)
@@ -48,6 +50,11 @@ interface StudioState {
   code: string;
   /** Исходный (до оптимизации) код импортированного файла; null — берётся исходный код. */
   baselineCode: string | null;
+  baselineFiles: ProjectFileDto[] | null;
+  verificationReport: VerificationReport | null;
+  getProjectFiles: () => ProjectFileDto[];
+  applyProjectFiles: (files: ProjectFileDto[]) => void;
+  acceptReport: (report: VerificationReport) => void;
 
   // Сеть / Бэкенд
   isBackendOnline: boolean;
@@ -152,22 +159,37 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       }
     }
   },
-  files: INITIAL_FILES,
-  activeFileId: 'file-main',
-  code: INITIAL_JAVA_CODE,
+  files: projectView([{ path: 'Main.java', source: SAMPLE_MONOLITH_CODE }]).files,
+  activeFileId: 'file:Main.java',
+  code: SAMPLE_MONOLITH_CODE,
   baselineCode: null,
+  baselineFiles: null,
+  verificationReport: null,
+  getProjectFiles: () => projectFiles(get().files, get().activeFileId, get().code),
+  applyProjectFiles: (files) => {
+    const active = flattenFiles(get().files).find(f => f.id === get().activeFileId);
+    set(projectView(files, active ? sourcePath(active.path) : undefined));
+  },
+  acceptReport: (report) => {
+    const passed = gatePassed(report, get().tests);
+    report = { ...report, allPassed: passed, behaviorMatched: passed };
+    set(state => ({ verificationReport: report, tests: reportedTests(state.tests, report),
+      metrics: { ...state.metrics, speedup: passed ? report.speedup || '—' : '—' } }));
+    get().addConsoleLog(`[${timeNow()}] Quality Gate ${passed ? 'PASSED' : 'FAILED'}: ${report.passed ?? 0} из ${report.total ?? report.testResults.length}.`);
+    if (report.compileOutput) get().addConsoleLog(`[ERROR] ${report.compileOutput}`);
+  },
 
   isBackendOnline: false,
 
-  nodes: INITIAL_NODES,
-  edges: INITIAL_EDGES,
+  nodes: [],
+  edges: [],
   selectedNodeId: null,
-  activeMethodId: 'Main.processOrders',
-  methodsList: [{ methodId: 'Main.processOrders', signature: 'processOrders(List<Order>)', lineStart: 8, lineEnd: 42 }],
+  activeMethodId: null,
+  methodsList: [],
 
   activeLineRange: null,
 
-  issues: INITIAL_ISSUES,
+  issues: [],
   selectedIssueId: null,
   metrics: INITIAL_METRICS,
   isOptimized: false,
@@ -181,8 +203,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     {
       id: 'tab-main',
       name: 'Main.java',
-      path: 'src/com.example/Main.java',
-      code: INITIAL_JAVA_CODE,
+      path: 'src/Main.java',
+      code: SAMPLE_MONOLITH_CODE,
     },
   ],
   activeTabId: 'tab-main',
@@ -191,7 +213,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     `[${new Date().toTimeString().split(' ')[0]}] Java Blueprints Studio запущена.`,
     `[${new Date().toTimeString().split(' ')[0]}] Проверка подключения к Spring Boot API (:8080)...`,
   ],
-  tests: INITIAL_TESTS,
+  tests: SAMPLE_MONOLITH_TESTS,
   isRunningTests: false,
   isCompiling: false,
   isMutating: false,
@@ -224,7 +246,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return;
     }
     const currentCode = sourceCode ?? get().code;
-    const files = [{ path: 'Main.java', source: currentCode }];
+    const files = projectFiles(get().files, get().activeFileId, currentCode);
     const seq = ++syncSeq;
     set({ syncStatus: 'syncing', syncError: null });
     try {
@@ -251,7 +273,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         selectedNodeId: keepSelection ? state.selectedNodeId : null,
         issues,
         selectedIssueId: issues.some((i) => i.id === state.selectedIssueId) ? state.selectedIssueId : null,
-        metrics: toMetrics(analysis.metrics),
+        metrics: { ...toMetrics(analysis.metrics), speedup: get().verificationReport && gatePassed(get().verificationReport!) ? get().verificationReport!.speedup : '—' },
         syncStatus: 'ok',
         analysisLoaded: true,
       }));
@@ -272,38 +294,27 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     // Нет в кэше (бэкенд ещё не отвечал) — строим заново
     if (!graph) return get().refreshGraphAndAnalysis(get().code, methodId);
     const { nodes, edges } = methodToFlow(graph, get().issues);
+    const file = flattenFiles(get().files).find(f => sourcePath(f.path) === graph.fileName);
+    if (file && file.id !== get().activeFileId) get().openFileTab({ ...file, code: file.code ?? '' });
     set({ activeMethodId: methodId, nodes, edges, selectedNodeId: null, activeLineRange: null });
   },
 
-  selectFile: (fileId: string) => {
-    const findFile = (items: FileItem[]): FileItem | undefined => {
-      for (const item of items) {
-        if (item.id === fileId) return item;
-        if (item.children) {
-          const found = findFile(item.children);
-          if (found) return found;
-        }
-      }
-    };
-    const file = findFile(get().files);
-    if (file && file.type === 'file' && file.code) {
-      set({
-        activeFileId: fileId,
-        code: file.code,
-        ...(get().baselineCode !== null ? { baselineCode: file.code } : {}),
-      });
-      get().refreshGraphAndAnalysis(file.code);
-    }
+  selectFile: (fileId) => {
+    const file = flattenFiles(get().files).find(f => f.id === fileId);
+    if (file) get().openFileTab({ ...file, code: file.code ?? '' });
   },
-
-  setCode: (code: string) => {
+  setCode: (code) => {
     if (code === get().code) return;
-    set({ code });
-    if (!get().isBackendOnline) return;
-    // Ответ на запрос, отправленный до этой правки, уже устарел
+    const baselineFiles = get().baselineFiles ?? get().getProjectFiles();
+    set(state => ({ code, baselineFiles, verificationReport: null, isOptimized: false,
+      metrics: { ...state.metrics, speedup: '—' },
+      files: updateFileCode(state.files, state.activeFileId, code),
+      openTabs: state.openTabs.map(t => t.id === state.activeTabId ? { ...t, code } : t),
+      tests: state.tests.map(t => ({ ...t, status: 'PENDING', errorDetails: undefined })),
+    }));
     syncSeq++;
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(() => get().refreshGraphAndAnalysis(), SYNC_DEBOUNCE_MS);
+    if (get().isBackendOnline) syncTimer = setTimeout(() => get().refreshGraphAndAnalysis(), SYNC_DEBOUNCE_MS);
   },
 
   setNodes: (nodesOrUpdater) => {
@@ -369,8 +380,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({ isMutating: true, mutationError: null });
     get().addConsoleLog(`[${timeNow()}] POST /api/graph/mutate: ${describe}...`);
     try {
-      const res = await ApiClient.mutateGraph({ files: [{ path: 'Main.java', source: code }], ...req });
-      const newSource = res.files?.[0]?.source;
+      const baselineFiles = get().baselineFiles ?? get().getProjectFiles();
+      const res = await ApiClient.mutateGraph({ files: get().getProjectFiles(), ...req });
+      get().applyProjectFiles(res.files);
+      set({ baselineFiles, verificationReport: null });
+      const newSource = get().code;
       if (newSource === undefined) throw new Error('Сервер не вернул код');
 
       // Граф берём из ответа (ID узлов пересчитаны по позициям), анализ догружаем отдельно
@@ -488,214 +502,58 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }));
   },
 
-  optimizeSingleIssue: async (issueId: string) => {
-    const { isBackendOnline, code, activeMethodId } = get();
-    set({ isCompiling: true, bottomTab: 'console' });
-    const now = new Date().toTimeString().split(' ')[0];
-
-    get().addConsoleLog(`[${now}] Точечное устранение дефекта «${issueId}» (Слайд 5 ТЗ)...`);
-
-    if (isBackendOnline) {
-      try {
-        const optRes = await ApiClient.optimizeCode([{ path: 'Main.java', source: code }], issueId);
-        const optSource = optRes.files?.[0]?.source || code;
-
-        set((state) => ({
-          code: optSource,
-          issues: state.issues.filter((i) => i.id !== issueId),
-          isCompiling: false,
-        }));
-
-        get().addConsoleLog(`[${now}] Дефект «${issueId}» устранен: O(n²) → O(n). Объяснение: ${optRes.explanation || 'успешно'} ✔`);
-        await get().refreshGraphAndAnalysis(optSource, activeMethodId || undefined);
-        return;
-      } catch (err: any) {
-        get().addConsoleLog(`[WARN] Ошибка точечной оптимизации: ${err.message}`);
-        set({ isCompiling: false });
-      }
-    }
+  optimizeSingleIssue: async (issueId) => {
+    if (!get().isBackendOnline || get().isCompiling) return;
+    const original = get().getProjectFiles();
+    set({ isCompiling: true, bottomTab: 'console', verificationReport: null });
+    try {
+      const response = await ApiClient.optimizeCode(original, issueId);
+      get().addConsoleLog(response.explanation);
+      await ApiClient.streamVerify({ original, modified: response.files,
+        tests: get().tests, mode: 'EXACT' }, get().addConsoleLog, report => {
+          get().acceptReport(report);
+          if (gatePassed(report, get().tests) && JSON.stringify(get().getProjectFiles()) === JSON.stringify(original)) {
+            set({ baselineFiles: get().baselineFiles ?? original });
+            get().applyProjectFiles(response.files);
+          }
+        }, error => get().addConsoleLog(`[ERROR] ${error}`));
+      await get().refreshGraphAndAnalysis();
+    } catch (error: any) { get().addConsoleLog(`[ERROR] ${error.message}`); }
+    finally { set({ isCompiling: false }); }
   },
-
   runOptimization: async () => {
-    const { isBackendOnline, code } = get();
-    set({ isCompiling: true, bottomTab: 'console' });
-    const now = new Date().toTimeString().split(' ')[0];
-
-    get().addConsoleLog(`[${now}] Запуск комплексной оптимизации и декомпозиции монолита (Слайды 5-6 ТЗ)...`);
-
-    if (isBackendOnline) {
-      try {
-        get().addConsoleLog(`[${now}] Вызов POST /api/optimize на Spring Boot (пакетное устранение O(n²))...`);
-        const optRes = await ApiClient.optimizeCode([{ path: 'Main.java', source: code }]);
-        const optSource = optRes.files?.[0]?.source || OPTIMIZED_JAVA_CODE;
-
-        get().addConsoleLog(`[${now}] Результат: ${optRes.explanation || 'Устранено дублирование и O(n²)'}`);
-        get().addConsoleLog(`[${now}] Вызов POST /api/decompose (автоматическое разделение на 4 класса)...`);
-        const decompRes = await ApiClient.decomposeMonolith([{ path: 'Main.java', source: optSource }]);
-
-        const newFiles = (decompRes.files || []).map((f: any) => ({
-          id: `file-${f.path.replace(/\.java$/, '').toLowerCase()}`,
-          name: f.path,
-          path: `src/com.example/${f.path}`,
-          type: 'file' as const,
-          code: f.source,
-          hasIssues: false,
-        }));
-
-        const decompTabs: FileTab[] = (decompRes.files || []).map((f: any) => ({
-          id: `tab-${f.path.replace(/[^a-zA-Z0-9]/g, '_')}`,
-          name: f.path,
-          path: `src/com.example/${f.path}`,
-          code: f.source,
-        }));
-
-        set((state) => ({
-          code: optSource,
-          isOptimized: true,
-          openTabs: decompTabs.length > 0 ? decompTabs : state.openTabs,
-          activeTabId: decompTabs[0]?.id || state.activeTabId,
-          metrics: {
-            ...state.metrics,
-            current: 'O(n)',
-            predicted: 'O(n)',
-            speedup: '5.2x (Подтверждено)',
-          },
-          files: state.files.map((root) => {
-            if (root.children) {
-              return {
-                ...root,
-                children: root.children.map((pkg) => {
-                  if (pkg.name === 'com.example') {
-                    return {
-                      ...pkg,
-                      children: [...newFiles],
-                    };
-                  }
-                  return pkg;
-                }),
-              };
-            }
-            return root;
-          }),
-        }));
-
-        get().addConsoleLog(`[${now}] Декомпозиция завершена: выделены классы ${decompRes.createdFiles?.join(', ')}`);
-        await get().refreshGraphAndAnalysis(optSource);
-
-        get().addConsoleLog(`[${now}] Подключение к SSE стриму /api/verify/stream (Quality Gate)...`);
-        const currentTests = get().tests.map((t) => ({
-          name: t.name,
-          stdin: t.stdin || '',
-          expectedStdout: t.expectedStdout,
-        }));
-
-        await ApiClient.streamVerify(
-          {
-            original: [{ path: 'Main.java', source: code }],
-            modified: decompRes.files,
-            mainClass: 'Main',
-            tests: currentTests,
-            mode: 'SORTED_LINES',
-          },
-          (logLine) => get().addConsoleLog(`[SSE] ${logLine}`),
-          (report) => {
-            set((state) => ({
-              isCompiling: false,
-              tests: state.tests.map((existing) => {
-                const tr = report.testResults?.find((r: any) => r.name === existing.name);
-                if (tr) {
-                  return {
-                    ...existing,
-                    status: tr.status === 'PASSED' ? 'PASSED' : 'FAILED',
-                    durationMs: tr.durationMs,
-                    errorDetails: tr.errorDetails,
-                  };
-                }
-                return {
-                  ...existing,
-                  status: 'PASSED',
-                  durationMs: Math.max(3, Math.floor(existing.durationMs / 3)),
-                };
-              }),
-            }));
-            get().addConsoleLog(`[${now}] Quality Gate PASSED: 100% тестов пройдены, поведение подтверждено! ✔`);
-          },
-          (err) => {
-            get().addConsoleLog(`[ERROR] Ошибка стрима: ${err}`);
-            set({ isCompiling: false });
-          }
-        );
-        return;
-      } catch (err: any) {
-        get().addConsoleLog(`[WARN] Ошибка обращения к бэкенду: ${err.message}.`);
-        set({ isCompiling: false });
-      }
-    }
+    if (!get().isBackendOnline || get().isCompiling) return;
+    const original = get().getProjectFiles();
+    set({ isCompiling: true, bottomTab: 'console', verificationReport: null });
+    try {
+      const optimized = await ApiClient.optimizeCode(original);
+      get().addConsoleLog(optimized.explanation);
+      const decomposed = await ApiClient.decomposeMonolith(optimized.files);
+      get().addConsoleLog(decomposed.explanation);
+      await ApiClient.streamVerify({ original, modified: decomposed.files,
+        tests: get().tests, mode: 'EXACT' }, get().addConsoleLog, report => {
+          get().acceptReport(report);
+          if (gatePassed(report, get().tests) && JSON.stringify(get().getProjectFiles()) === JSON.stringify(original)) {
+            set({ baselineFiles: get().baselineFiles ?? original, isOptimized: true });
+            get().applyProjectFiles(decomposed.files);
+          } else get().addConsoleLog('[ERROR] Преобразование отклонено: исходный проект сохранён.');
+        }, error => get().addConsoleLog(`[ERROR] ${error}`));
+      await get().refreshGraphAndAnalysis();
+    } catch (error: any) { get().addConsoleLog(`[ERROR] ${error.message}`); }
+    finally { set({ isCompiling: false }); }
   },
-
   runTests: async () => {
-    const { isBackendOnline, code, tests, baselineCode } = get();
-    set({ isRunningTests: true, bottomTab: 'tests' });
-    const now = new Date().toTimeString().split(' ')[0];
-    get().addConsoleLog(`[${now}] Запуск набора тестов (${tests.length} сценариев) на Quality Gate...`);
-
-    // Переводим статус в RUNNING
-    set((state) => ({
-      tests: state.tests.map((t) => ({ ...t, status: 'RUNNING' })),
-    }));
-
-    if (isBackendOnline) {
-      try {
-        const payloadTests = tests.map((t) => ({
-          name: t.name,
-          stdin: t.stdin || '',
-          expectedStdout: t.expectedStdout,
-        }));
-
-        const originalSource = baselineCode ?? INITIAL_JAVA_CODE;
-
-        await ApiClient.streamVerify(
-          {
-            original: [{ path: 'Main.java', source: originalSource }],
-            modified: [{ path: 'Main.java', source: code }],
-            mainClass: 'Main',
-            tests: payloadTests,
-            mode: 'SORTED_LINES',
-          },
-          (logLine) => get().addConsoleLog(`[SSE] ${logLine}`),
-          (report) => {
-            set((state) => ({
-              isRunningTests: false,
-              tests: state.tests.map((t) => {
-                const tr = report.testResults?.find((r: any) => r.name === t.name);
-                if (tr) {
-                  return {
-                    ...t,
-                    status: tr.status === 'PASSED' ? 'PASSED' : 'FAILED',
-                    durationMs: tr.durationMs,
-                    errorDetails: tr.errorDetails,
-                  };
-                }
-                return { ...t, status: 'PASSED' };
-              }),
-            }));
-            const passed = report.testResults?.filter((r) => r.status === 'PASSED').length || tests.length;
-            get().addConsoleLog(`[${now}] Quality Gate завершен: ${passed} из ${tests.length} тестов пройдены ✔`);
-          },
-          (err) => {
-            get().addConsoleLog(`[ERROR] Ошибка Quality Gate: ${err}`);
-            set((state) => ({
-              isRunningTests: false,
-              tests: state.tests.map((t) => ({ ...t, status: 'FAILED' })),
-            }));
-          }
-        );
-        return;
-      } catch (err: any) {
-        get().addConsoleLog(`[ERROR] Сбой вызова верификации: ${err.message}`);
-        set({ isRunningTests: false });
-      }
-    }
+    if (!get().isBackendOnline || get().isRunningTests) return;
+    const modified = get().getProjectFiles();
+    const original = get().baselineFiles ?? modified;
+    set(state => ({ isRunningTests: true, bottomTab: 'tests', verificationReport: null,
+      tests: state.tests.map(t => ({ ...t, status: 'RUNNING' })) }));
+    await ApiClient.streamVerify({ original, modified, tests: get().tests, mode: 'EXACT' },
+      get().addConsoleLog, get().acceptReport, error => {
+        get().addConsoleLog(`[ERROR] ${error}`);
+        set(state => ({ tests: state.tests.map(t => ({ ...t, status: 'FAILED', errorDetails: error })) }));
+      });
+    set({ isRunningTests: false });
   },
 
   runCodeInConsole: async (stdin = '') => {
@@ -706,7 +564,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     if (isBackendOnline) {
       try {
-        const res = await ApiClient.runCode([{ path: 'Main.java', source: code }], 'Main', stdin);
+        const res = await ApiClient.runCode(get().getProjectFiles(), undefined, stdin);
         if (!res.compiled) {
           get().addConsoleLog(`[ERROR] Ошибка компиляции:\n${res.compileOutput}`);
           return;
@@ -815,6 +673,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       activeFileId: main.id,
       code: main.code || '',
       baselineCode: main.code || '',
+      baselineFiles: projectFiles([root], main.id, main.code || ''),
+      verificationReport: null,
       isOptimized: false,
       tests: [],
       openTabs: [{ id: `tab-${main.id}`, name: main.name, path: main.path, code: main.code || '' }],
@@ -841,52 +701,32 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   resetDefaultTests: () => {
-    const defaults = INITIAL_TESTS;
+    const defaults = SAMPLE_MONOLITH_TESTS;
     set({ tests: defaults });
     get().addConsoleLog(`[${new Date().toTimeString().split(' ')[0]}] Набор тестов сброшен (${defaults.length} тестов)`);
   },
 
   // Управление вкладками файлов над Monaco Editor (Слайд 4 ТЗ)
   openFileTab: (file) => {
-    const tabId = file.id || `tab-${file.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const exists = get().openTabs.find((t) => t.id === tabId || t.name === file.name);
-    if (exists) {
-      set({ activeTabId: exists.id, code: exists.code });
-    } else {
-      const newTab: FileTab = {
-        id: tabId,
-        name: file.name,
-        path: file.path,
-        code: file.code,
-      };
-      set((state) => ({
-        openTabs: [...state.openTabs, newTab],
-        activeTabId: tabId,
-        code: file.code,
-      }));
-    }
-    get().refreshGraphAndAnalysis(file.code);
+    const item = flattenFiles(get().files).find(f => f.path === file.path || f.id === file.id);
+    if (!item) return;
+    const exists = get().openTabs.find(t => t.path === item.path);
+    const tab = exists ?? { id: `tab:${item.path}`, name: item.name, path: item.path, code: item.code ?? '' };
+    set(state => ({ activeFileId: item.id, activeTabId: tab.id, code: item.code ?? '',
+      openTabs: exists ? state.openTabs : [...state.openTabs, tab] }));
+    const method = graphCache.find(m => m.fileName === sourcePath(item.path));
+    get().refreshGraphAndAnalysis(undefined, method?.methodId);
   },
-
-  closeFileTab: (tabId: string) => {
-    const tabs = get().openTabs;
-    if (tabs.length <= 1) return; // Не закрываем последнюю вкладку
-    const newTabs = tabs.filter((t) => t.id !== tabId);
-    const nextActive = newTabs[newTabs.length - 1];
-    set({
-      openTabs: newTabs,
-      activeTabId: nextActive.id,
-      code: nextActive.code,
-    });
-    get().refreshGraphAndAnalysis(nextActive.code);
+  closeFileTab: (tabId) => {
+    if (get().openTabs.length <= 1) return;
+    const tabs = get().openTabs.filter(t => t.id !== tabId);
+    const wasActive = get().activeTabId === tabId;
+    set({ openTabs: tabs });
+    if (wasActive) get().setActiveTabId(tabs[tabs.length - 1].id);
   },
-
-  setActiveTabId: (tabId: string) => {
-    const tab = get().openTabs.find((t) => t.id === tabId);
-    if (tab) {
-      set({ activeTabId: tabId, code: tab.code });
-      get().refreshGraphAndAnalysis(tab.code);
-    }
+  setActiveTabId: (tabId) => {
+    const tab = get().openTabs.find(t => t.id === tabId);
+    if (tab) get().openFileTab(tab);
   },
 }));
 
@@ -907,6 +747,7 @@ const restoreSavedProject = () => {
       activeFileId: saved.activeFileId,
       code: saved.code,
       baselineCode: typeof saved.baselineCode === 'string' ? saved.baselineCode : saved.code,
+      baselineFiles: Array.isArray(saved.baselineFiles) ? saved.baselineFiles : projectFiles(saved.files, saved.activeFileId, saved.code),
       isOptimized: !!saved.isOptimized,
       tests: Array.isArray(saved.tests) ? saved.tests : [],
       openTabs: Array.isArray(saved.openTabs) ? saved.openTabs : useStudioStore.getState().openTabs,
@@ -921,7 +762,7 @@ let persistTimer: ReturnType<typeof setTimeout> | undefined;
 const persistProject = () => {
   const s = useStudioStore.getState();
   try {
-    if (s.baselineCode === null) {
+    if (s.baselineCode === null && s.baselineFiles === null) {
       localStorage.removeItem(PROJECT_STORAGE_KEY);
       return;
     }
@@ -932,6 +773,7 @@ const persistProject = () => {
         activeFileId: s.activeFileId,
         code: s.code,
         baselineCode: s.baselineCode,
+        baselineFiles: s.baselineFiles,
         isOptimized: s.isOptimized,
         openTabs: s.openTabs,
         activeTabId: s.activeTabId,

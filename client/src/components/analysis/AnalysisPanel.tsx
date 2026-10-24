@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { flattenFiles, sourcePath } from '../../store/projectFiles';
 import { useStudioStore } from '../../store/useStudioStore';
 import {
   AlertTriangle,
@@ -24,6 +25,7 @@ export const AnalysisPanel: React.FC = () => {
   };
 
   const {
+    files,
     issues,
     metrics,
     selectedIssueId,
@@ -172,27 +174,29 @@ export const AnalysisPanel: React.FC = () => {
                       <div className="mt-1.5 p-2 bg-[#09090b] rounded border border-zinc-800/80 space-y-1.5">
                         <div>
                           <div className="text-[9px] font-sans font-semibold text-rose-400 uppercase tracking-wider mb-0.5">
-                            Было (Квадратичный перебор O(n²)):
+                            Было:
                           </div>
                           <pre className="p-1.5 bg-rose-950/20 border border-rose-900/40 rounded text-rose-300 font-mono text-[10px] whitespace-pre-wrap leading-tight">
-                            {issue.suggestedCode
-                              ? `- ${issue.suggestedCode.split('\n')[0] || 'for (Order a : orders) ...'}`
-                              : `- for (Order a : orders) {\n-     for (Order b : processed) {\n-         if (a.getId().equals(b.getId())) ...\n-     }\n- }`}
+                            {(() => {
+                              const source = flattenFiles(files).find(f => sourcePath(f.path) === issue.fileName)?.code;
+                              const method = useStudioStore.getState().methodsList.find(m => issue.nodeId.startsWith(m.methodId + '/'));
+                              return source?.split(/\r?\n/).slice((method?.lineStart ?? issue.lineStart) - 1, method?.lineEnd ?? issue.lineEnd).join('\n') ?? 'Исходный фрагмент недоступен';
+                            })()}
                           </pre>
                         </div>
 
                         <div>
                           <div className="text-[9px] font-sans font-semibold text-emerald-400 uppercase tracking-wider mb-0.5">
-                            Стало (Хеш-таблица O(1) поиск):
+                            Предложение (до проверки тестами):
                           </div>
                           <pre className="p-1.5 bg-emerald-950/20 border border-emerald-900/40 rounded text-emerald-300 font-mono text-[10px] whitespace-pre-wrap leading-tight">
-                            {issue.suggestedCode || `+ Set<String> processedIds = new HashSet<>();\n+ for (Order b : processed) processedIds.add(b.getId());\n+ for (Order a : orders) {\n+     if (processedIds.contains(a.getId())) ...\n+ }`}
+                            {issue.suggestedCode || 'Для этого дефекта готовый вариант кода не предложен. См. рекомендацию выше.'}
                           </pre>
                         </div>
 
                         <div className="pt-1 border-t border-zinc-800/60 flex items-center justify-between text-[10px]">
-                          <span className="text-amber-400 font-medium">⚡ Ожидаемый эффект: O(n), 5.2x</span>
-                          <span className="text-emerald-400 font-medium">100% Quality Gate</span>
+                          <span className="text-amber-400 font-medium">Оценка: {issue.complexityBefore ?? '—'} → {issue.complexityAfter ?? '—'}</span>
+                          <span className="text-emerald-400 font-medium">Требуется Quality Gate</span>
                         </div>
                       </div>
                     )}
@@ -317,7 +321,7 @@ export const AnalysisPanel: React.FC = () => {
             className="w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg font-semibold text-xs transition shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>{isCompiling ? 'Оптимизация...' : 'Оптимизировать O(n²) → O(n)'}</span>
+            <span>{isCompiling ? 'Оптимизация...' : 'Оптимизировать и проверить'}</span>
           </button>
         )}
       </div>

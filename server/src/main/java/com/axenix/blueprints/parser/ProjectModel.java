@@ -11,6 +11,7 @@ import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.CompactConstructorDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
@@ -43,7 +44,7 @@ public final class ProjectModel {
      */
     public record MethodRef(String id, String className, String file, CompilationUnit cu, Node decl) {
         public MethodRef {
-            if (!(decl instanceof CallableDeclaration<?> || decl instanceof CompactConstructorDeclaration)) {
+            if (!(decl instanceof CallableDeclaration<?> || decl instanceof CompactConstructorDeclaration || decl instanceof InitializerDeclaration)) {
                 throw new IllegalArgumentException("Не метод: " + decl.getClass().getSimpleName());
             }
         }
@@ -53,12 +54,14 @@ public final class ProjectModel {
             if (decl instanceof MethodDeclaration md) return md.getBody().orElse(null);
             if (decl instanceof ConstructorDeclaration cd) return cd.getBody();
             if (decl instanceof CompactConstructorDeclaration cc) return cc.getBody();
+            if (decl instanceof InitializerDeclaration init) return init.getBody();
             return null;
         }
 
         /** Сигнатура для подписи узла входа; у компактного конструктора — «Point (compact)». */
         public String signature() {
             if (decl instanceof CallableDeclaration<?> cd) return cd.getDeclarationAsString(true, true, true);
+            if (decl instanceof InitializerDeclaration init) return init.isStatic() ? "static initializer" : "instance initializer";
             CompactConstructorDeclaration cc = (CompactConstructorDeclaration) decl;
             StringBuilder sb = new StringBuilder();
             cc.getModifiers().forEach(mod -> sb.append(mod.getKeyword().asString()).append(' '));
@@ -96,9 +99,10 @@ public final class ProjectModel {
             pm.sources.put(f.path(), f.source());
             Map<ObjectCreationExpr, Integer> anon = anonymousIndexes(cu);
             // обход в прямом порядке = порядок исходника; компактные конструкторы — в общем потоке
-            for (Node d : cu.findAll(Node.class, x -> x instanceof CallableDeclaration<?> || x instanceof CompactConstructorDeclaration)) {
+            for (Node d : cu.findAll(Node.class, x -> x instanceof CallableDeclaration<?> || x instanceof CompactConstructorDeclaration || x instanceof InitializerDeclaration)) {
                 String cls = className(d, anon);
-                String base = cls + "." + ((NodeWithSimpleName<?>) d).getNameAsString();
+                String base = cls + "." + (d instanceof InitializerDeclaration init
+                        ? (init.isStatic() ? "$static" : "$init") : ((NodeWithSimpleName<?>) d).getNameAsString());
                 int n = seen.merge(base, 1, Integer::sum);
                 pm.methods.add(new MethodRef(n == 1 ? base : base + "#" + n, cls, f.path(), cu, d));
             }

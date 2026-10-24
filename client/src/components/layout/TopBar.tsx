@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useStudioStore } from '../../store/useStudioStore';
+import { SAMPLE_MONOLITH_CODE, SAMPLE_MONOLITH_TESTS } from '../../store/monolithData';
 import {
   UploadCloud,
   Download,
@@ -43,7 +44,7 @@ export const TopBar: React.FC = () => {
   const MAX_JAVA_FILE_SIZE = 2 * 1024 * 1024; // 2 MB limit (Client-side DoS prevention)
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = Array.from(e.target.files || []).filter((f) => f.name.endsWith('.java'));
+    const list = Array.from(e.target.files || []).filter((f) => /\.(java|json)$/i.test(f.name));
     const input = e.target;
     const tooBig = list.find((f) => f.size > MAX_JAVA_FILE_SIZE);
     if (tooBig) {
@@ -60,18 +61,37 @@ export const TopBar: React.FC = () => {
             })
         )
       );
-      await importProject(loaded.filter((f) => f.content));
+      try {
+        const sources = loaded.flatMap(f => {
+          if (!f.name.endsWith('.json')) return [f];
+          const project = JSON.parse(f.content);
+          if (!Array.isArray(project.files) || !project.files.every((file: any) =>
+            typeof file.path === 'string' && file.path.endsWith('.java') && typeof file.source === 'string')) {
+            throw new Error('Некорректный файл проекта');
+          }
+          return project.files.map((file: any) => ({ name: file.path, content: file.source }));
+        });
+        await importProject(sources);
+      } catch (error: any) { addConsoleLog(`[ERROR] Импорт: ${error.message}`); }
     }
     input.value = '';
   };
 
+  const handleDemo = async () => {
+    await importProject([{ name: 'Main.java', content: SAMPLE_MONOLITH_CODE }]);
+    useStudioStore.setState({ tests: SAMPLE_MONOLITH_TESTS.map(t => ({ ...t, status: 'PENDING' })) });
+    await runOptimization();
+  };
+
   const handleExport = () => {
-    const { code } = useStudioStore.getState();
-    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+    const files = useStudioStore.getState().getProjectFiles();
+    const multiple = files.length > 1;
+    const content = multiple ? JSON.stringify({ files }, null, 2) : files[0].source;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = isOptimized ? 'MainOptimized.java' : 'Main.java';
+    link.download = multiple ? 'java-project.json' : files[0].path.split('/').pop()!;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -79,7 +99,11 @@ export const TopBar: React.FC = () => {
   return (
     <header className="h-12 w-full bg-surface border-b border-border flex items-center justify-between px-3 shrink-0 select-none gap-2 overflow-x-auto no-scrollbar">
       {/* Hidden File Input */}
-      <input ref={fileInputRef} type="file" accept=".java" multiple onChange={handleFileChange} className="hidden" />
+      <input ref={fileInputRef} type="file" accept=".java,.json" multiple onChange={handleFileChange} className="hidden" />
+      <button onClick={handleDemo} disabled={!isBackendOnline || isCompiling || isRunningTests}
+        className="px-2 py-1 text-xs rounded bg-blue-600 text-white disabled:opacity-50 whitespace-nowrap">
+        Демо ТЗ
+      </button>
 
       {/* Brand / Logo */}
       <div className="flex items-center gap-2.5 shrink-0 min-w-0">
@@ -114,7 +138,7 @@ export const TopBar: React.FC = () => {
           ) : (
             <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-950/80 text-blue-300 border border-blue-500/40 flex items-center gap-1.5 shadow-sm whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
-              <span>Sandbox Mode</span>
+              <span>Бэкенд недоступен</span>
             </span>
           )}
         </div>

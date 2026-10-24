@@ -9,6 +9,7 @@ import com.github.javaparser.ast.expr.ArrayCreationExpr;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.stmt.DoStmt;
 import com.github.javaparser.ast.stmt.ForEachStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
@@ -52,6 +53,9 @@ public class LoopComplexityAnalyzer {
         List<Finding> out = new ArrayList<>();
         for (MethodDeclaration m : cu.findAll(MethodDeclaration.class)) {
             m.getBody().ifPresent(body -> body.accept(new MethodVisitor(m.getNameAsString(), listVars, out), null));
+        }
+        for (var init : cu.findAll(com.github.javaparser.ast.body.InitializerDeclaration.class)) {
+            init.getBody().accept(new MethodVisitor(init.isStatic() ? "$static" : "$init", listVars, out), null);
         }
         return out;
     }
@@ -117,6 +121,16 @@ public class LoopComplexityAnalyzer {
 
         @Override public void visit(DoStmt n, Void a) {
             loop(n, false, () -> super.visit(n, a));
+        }
+
+        @Override public void visit(LambdaExpr n, Void a) {
+            // A callback on a sequential stream is evaluated for each input element.
+            Node parent = n.getParentNode().orElse(null);
+            if (parent instanceof MethodCallExpr call && call.getScope().isPresent()
+                    && call.getScope().get().findAll(MethodCallExpr.class).stream()
+                    .anyMatch(c -> c.getNameAsString().equals("stream"))) {
+                loop(n, false, () -> super.visit(n, a));
+            } else super.visit(n, a);
         }
 
         @Override public void visit(MethodCallExpr c, Void a) {

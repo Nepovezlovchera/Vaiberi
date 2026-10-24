@@ -35,6 +35,7 @@ function firstCodeLine(code: string): string | undefined {
 export function toMethodInfos(methods: MethodGraphResponseDto[]): MethodInfo[] {
   return methods.map((m) => ({
     methodId: m.methodId,
+    fileName: m.fileName,
     // У методов без модификатора доступа сигнатура приходит с ведущим пробелом
     signature: m.methodSignature.trim(),
     lineStart: m.lineStart,

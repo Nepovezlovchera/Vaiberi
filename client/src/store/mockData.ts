@@ -202,14 +202,14 @@ export const INITIAL_ISSUES: CodeIssue[] = [
     fileName: 'Main.java:31',
     description: 'Вложенный цикл может иметь сложность O(n²) при большом количестве входных данных.',
     risk: 'Экспоненциальный рост времени отклика при масштабировании данных на стенде.',
-    recommendation: 'Индексировать элементы коллекции в Map по ключу id (ускорение до 5.2x).',
+    recommendation: 'Индексировать элементы коллекции в Map по ключу id.',
   },
 ];
 
 export const INITIAL_METRICS: ComplexityMetrics = {
   current: 'O(n²)',
   predicted: 'O(n log n)',
-  speedup: 'до 5.2x',
+  speedup: '—',
   cyclomatic: 14,
   linesOfCode: 42,
   methodsCount: 1,

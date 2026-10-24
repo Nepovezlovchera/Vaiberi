@@ -210,7 +210,7 @@ export const ApiClient = {
   },
 
   /** Прямой запуск скомпилированного кода в консоли песочницы */
-  async runCode(files: ProjectFileDto[], mainClass = 'Main', stdin = '') {
+  async runCode(files: ProjectFileDto[], mainClass?: string, stdin = '') {
     const res = await fetch(`${API_BASE}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -261,41 +261,37 @@ export const ApiClient = {
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
-
-        for (const part of parts) {
-          const lines = part.split('\n');
-          let eventName = 'message';
-          let dataStr = '';
-
-          for (const line of lines) {
-            if (line.startsWith('event:')) {
-              eventName = line.substring(6).trim();
-            } else if (line.startsWith('data:')) {
-              dataStr += line.substring(5).trim();
-            }
-          }
-
-          if (eventName === 'log') {
-            onLog(dataStr);
-          } else if (eventName === 'complete') {
-            try {
-              const report = JSON.parse(dataStr);
-              onComplete(report);
-            } catch {
-              onLog(`[SUCCESS] Отчет получен: ${dataStr}`);
-            }
-          } else if (eventName === 'error') {
-            onError(dataStr);
-          }
+      let completed = false;
+      const dispatch = (part: string) => {
+        const lines = part.split('\n');
+        const eventName = lines.find(l => l.startsWith('event:'))?.slice(6).trim() ?? 'message';
+        const data = lines.filter(l => l.startsWith('data:')).map(l => l.slice(5).trimStart()).join('\n');
+        if (eventName === 'log') onLog(data);
+        else if (eventName === 'error') throw new Error(data || 'Ошибка Quality Gate');
+        else if (eventName === 'complete') {
+          const report = JSON.parse(data) as VerificationReport;
+          if (!Array.isArray(report.testResults)) throw new Error('Некорректный отчёт Quality Gate');
+          onComplete(report);
+          completed = true;
         }
+      };
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          buffer = buffer.replace(/\r\n/g, '\n');
+          let boundary: number;
+          while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+            dispatch(buffer.slice(0, boundary));
+            buffer = buffer.slice(boundary + 2);
+          }
+          if (done) break;
+        }
+        if (buffer.trim()) dispatch(buffer);
+        if (!completed) throw new Error('Поток закрыт без итогового отчёта Quality Gate');
+      } finally {
+        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
       }
     } catch (err: any) {
       onError(err.message || 'Сбой потока верификации');

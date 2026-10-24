@@ -71,14 +71,33 @@ public class DecomposeServiceImpl implements DecomposeService {
                 splitMethods(pm, path, entry.getValue(), dir, req.plan(), taken, created, notes);
             }
         }
-        if (created.isEmpty()) {
+        // Fall back to local extraction when responsibilities cannot be moved to files.
+        boolean extracted = false;
+        if (split && created.isEmpty()) {
+            for (var entry : pm.units.entrySet()) {
+                for (MethodDeclaration method : new ArrayList<>(entry.getValue().findAll(MethodDeclaration.class))) {
+                    if (method.getRange().map(r -> r.end.line - r.begin.line).orElse(0) <= 30) continue;
+                    if (ExtractMethod.apply(entry.getValue(), method.getBegin().orElseThrow().line).isPresent()) {
+                        pm.touch(entry.getKey());
+                        notes.add("Из длинного метода " + method.getNameAsString() + " выделен вспомогательный метод");
+                        extracted = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (created.isEmpty() && !extracted) {
             return new DecomposeResponse(req.files(), List.of(), "Нечего выносить: подходящих классов и методов не найдено."
                     + (notes.isEmpty() ? "" : " " + String.join("; ", notes)));
         }
         List<ProjectFile> all = new ArrayList<>(pm.render());
         all.addAll(created);
+        String compilation = compileNote(all);
+        if (!compilation.equals("Компиляция после декомпозиции: успешно.")) {
+            return new DecomposeResponse(req.files(), List.of(), "Декомпозиция отменена; исходный проект сохранён. " + compilation);
+        }
         return new DecomposeResponse(all, created.stream().map(ProjectFile::path).toList(),
-                String.join("; ", notes) + ". " + compileNote(all));
+                String.join("; ", notes) + ". " + compilation);
     }
 
     // ---------- 1. вложенные классы ----------

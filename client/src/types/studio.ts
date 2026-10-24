@@ -92,6 +92,7 @@ export type TestCaseItem = TestCaseResult;
 
 export interface MethodInfo {
   methodId: string;
+  fileName?: string;
   signature: string;
   lineStart: number;
   lineEnd: number;
@@ -104,7 +105,9 @@ export interface VerificationReport {
   optimizedTimeMs: number;
   speedup: string;
   complexityBefore: string;
-  testResults: TestCaseResult[];
+  complexityAfter?: string;
+  compileOutput?: string;
+  testResults: { name: string; status: 'PASSED' | 'FAILED' | 'TIMEOUT' | 'COMPILE_ERROR'; durationMs: number; errorDetails?: string }[];
   passed?: number;
   total?: number;
 }

@@ -120,6 +120,8 @@ public final class TemplateFixes {
     /** Любой подходящий шаблон для проблемы, начинающейся на строке line (для отчёта и автофикса). */
     public static Optional<String> apply(CompilationUnit cu, int line) {
         Optional<String> r = containsInLoop(cu, line);
+        if (r.isPresent()) return r;
+        r = StreamFixes.apply(cu, line);
         return r.isPresent() ? r : nestedLoopToMap(cu, line);
     }
 

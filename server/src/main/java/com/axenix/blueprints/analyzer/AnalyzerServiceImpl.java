@@ -220,7 +220,7 @@ public class AnalyzerServiceImpl implements AnalyzerService {
             String repl = names.get(sn.getIdentifier());
             if (repl != null) sn.setIdentifier(repl);
         }
-        ((NodeWithSimpleName<?>) copy).setName("m");
+        if (copy instanceof NodeWithSimpleName<?> named) named.setName("m");
         return copy.toString().replaceAll("\\s+", " ");
     }
 }
