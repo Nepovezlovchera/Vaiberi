@@ -15,15 +15,18 @@ export const MethodNode: React.FC<NodeProps> = ({ data, selected }) => {
           <span className="text-xs font-semibold text-purple-300">Метод</span>
         </div>
         {Boolean(data.hasIssue) && (
-          <span className="flex items-center gap-1 text-[10px] text-amber-300 font-medium bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-600/40">
-            <AlertTriangle className="w-3 h-3 text-amber-400" />
-            Длинный метод
+          <span
+            className="flex items-center gap-1 max-w-[170px] text-[10px] text-amber-300 font-medium bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-600/40"
+            title={String(data.issueTitle || '')}
+          >
+            <AlertTriangle className="w-3 h-3 shrink-0 text-amber-400" />
+            <span className="truncate">{String(data.issueTitle || 'Проблема')}</span>
           </span>
         )}
       </div>
 
       <div className="p-3 text-xs font-mono text-zinc-200">
-        <div className="break-all">{String(data.code || data.label)}</div>
+        <div className="break-all">{String(data.text || data.code || data.label)}</div>
       </div>
 
       <Handle

@@ -21,6 +21,8 @@ import { LoopNode } from './nodes/LoopNode';
 import { VarNode } from './nodes/VarNode';
 import { CallNode } from './nodes/CallNode';
 import { ReturnNode } from './nodes/ReturnNode';
+import { TryNode, SwitchNode } from './nodes/StructNode';
+import { JumpNode } from './nodes/JumpNode';
 import { getLayoutedElements } from './layout';
 import { LayoutGrid, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 
@@ -42,6 +44,8 @@ const FlowCanvasInternal: React.FC = () => {
     stepDebug,
     stopDebug,
     isMutating,
+    syncStatus,
+    syncError,
   } = useStudioStore();
   const { fitView, zoomIn, zoomOut } = useReactFlow();
 
@@ -55,9 +59,20 @@ const FlowCanvasInternal: React.FC = () => {
       return: ReturnNode,
       op: VarNode,
       raw: VarNode,
+      try: TryNode,
+      switch: SwitchNode,
+      break: JumpNode,
+      continue: JumpNode,
+      throw: JumpNode,
     }),
     []
   );
+
+  // Подгоняем вид при смене метода или набора узлов
+  useEffect(() => {
+    const t = setTimeout(() => fitView({ padding: 0.2 }), 50);
+    return () => clearTimeout(t);
+  }, [activeMethodId, nodes.length, fitView]);
 
   // Клавиатурное удаление выбранного узла (Delete / Backspace)
   useEffect(() => {
@@ -148,6 +163,12 @@ const FlowCanvasInternal: React.FC = () => {
             onChange={(e) => setActiveMethodId(e.target.value)}
             className="bg-zinc-900 border border-border text-xs text-blue-400 font-semibold rounded px-2 py-0.5 focus:outline-none focus:border-blue-500 font-mono max-w-[280px] truncate"
           >
+            {/* Без пустого варианта select показал бы первый метод, хотя холст пуст */}
+            {!activeMethodId && (
+              <option value="" disabled>
+                Метод не выбран
+              </option>
+            )}
             {methodsList.map((m) => (
               <option key={m.methodId} value={m.methodId}>
                 {m.signature} (строки {m.lineStart}-{m.lineEnd})
@@ -184,6 +205,35 @@ const FlowCanvasInternal: React.FC = () => {
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-blue-950/90 border border-blue-500/50 text-[11px] text-blue-300 flex items-center gap-2 shadow-lg">
           <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
           Синхронизация AST...
+        </div>
+      )}
+
+      {/* Статус синхронизации с бэкендом */}
+      {syncStatus !== 'idle' && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 max-w-[50%]">
+          {syncStatus === 'syncing' && (
+            <span className="inline-block px-2.5 py-1 text-xs rounded-full bg-blue-950/80 border border-blue-500/40 text-blue-300">
+              Анализ…
+            </span>
+          )}
+          {syncStatus === 'ok' && (
+            <span className="inline-block px-2.5 py-1 text-xs rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300">
+              Граф построен бэкендом
+            </span>
+          )}
+          {syncStatus === 'error' && (
+            <span
+              className="block truncate px-2.5 py-1 text-xs rounded-full bg-rose-950/80 border border-rose-500/40 text-rose-300"
+              title={syncError ?? ''}
+            >
+              {syncError}
+            </span>
+          )}
+          {syncStatus === 'offline' && (
+            <span className="inline-block px-2.5 py-1 text-xs rounded-full bg-amber-950/80 border border-amber-500/40 text-amber-300">
+              Демо-граф (бэкенд оффлайн)
+            </span>
+          )}
         </div>
       )}
 

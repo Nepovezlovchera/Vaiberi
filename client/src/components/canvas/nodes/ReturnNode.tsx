@@ -21,8 +21,15 @@ export const ReturnNode: React.FC<NodeProps> = ({ data, selected }) => {
       </div>
 
       <div className="p-2.5 text-xs font-mono text-zinc-100 font-semibold">
-        <div className="break-all">{String(data.code || data.label)}</div>
+        <div className="break-all">{String(data.text || data.code || data.label)}</div>
       </div>
+
+      {/* Только для ребра к недостижимому коду после return (бэкенд связывает операторы блока подряд) */}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!bg-zinc-600 !w-2 !h-2 !border-zinc-950"
+      />
     </div>
   );
 };

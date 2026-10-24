@@ -110,7 +110,8 @@ public class ProcessRunner {
 
         String text() {
             synchronized (buf) {
-                return buf.toString(StandardCharsets.UTF_8).replace("\uFEFF", "");
+                // \u041D\u0430 Windows println \u043F\u0438\u0448\u0435\u0442 \r\n: \u043F\u0440\u0438\u0432\u043E\u0434\u0438\u043C \u043A \n, \u0447\u0442\u043E\u0431\u044B \u0432\u044B\u0432\u043E\u0434 \u043D\u0435 \u0437\u0430\u0432\u0438\u0441\u0435\u043B \u043E\u0442 \u041E\u0421 \u0441\u0435\u0440\u0432\u0435\u0440\u0430
+                return buf.toString(StandardCharsets.UTF_8).replace("\uFEFF", "").replace("\r\n", "\n");
             }
         }
     }
