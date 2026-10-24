@@ -92,14 +92,12 @@ export interface TestCaseDto {
 export interface VerifyRequestDto {
   original: ProjectFileDto[];
   modified: ProjectFileDto[];
-  mainClass: string;
+  mainClass?: string;
   tests: TestCaseDto[];
   mode: 'EXACT' | 'SORTED_LINES' | 'MASKED';
 }
 
-const API_BASE = (typeof window !== 'undefined' && window.location.port === '3000')
-  ? 'http://127.0.0.1:8080/api'
-  : '/api';
+const API_BASE = '/api';
 
 export const ApiClient = {
   /** Проверка доступности бэкенда */
