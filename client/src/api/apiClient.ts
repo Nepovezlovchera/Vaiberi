@@ -97,7 +97,7 @@ export interface VerifyRequestDto {
   mode: 'EXACT' | 'SORTED_LINES' | 'MASKED';
 }
 
-export type MutateAction = 'UPDATE_CODE' | 'DELETE_NODE' | 'INSERT_NODE' | 'REORDER';
+export type MutateAction = 'UPDATE_CODE' | 'DELETE_NODE' | 'INSERT_NODE' | 'INSERT_METHOD' | 'REORDER';
 
 export interface MutateRequestDto {
   files: ProjectFileDto[];
@@ -210,7 +210,7 @@ export const ApiClient = {
   },
 
   /** Прямой запуск скомпилированного кода в консоли песочницы */
-  async runCode(files: ProjectFileDto[], mainClass = 'Main', stdin = '') {
+  async runCode(files: ProjectFileDto[], mainClass?: string, stdin = '') {
     const res = await fetch(`${API_BASE}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -318,8 +318,11 @@ export const ApiClient = {
     onComplete: (report: VerificationReport) => void,
     onError: (err: string) => void
   ) {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 720_000);
     try {
       const response = await fetch(`${API_BASE}/verify/stream`, {
+        signal: abort.signal,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -335,12 +338,14 @@ export const ApiClient = {
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
+      let completed = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, '\n');
         const parts = buffer.split('\n\n');
         buffer = parts.pop() || '';
 
@@ -353,26 +358,31 @@ export const ApiClient = {
             if (line.startsWith('event:')) {
               eventName = line.substring(6).trim();
             } else if (line.startsWith('data:')) {
-              dataStr += line.substring(5).trim();
+              dataStr += (dataStr ? '\n' : '') + line.substring(5).replace(/^ /, '');
             }
           }
 
           if (eventName === 'log') {
             onLog(dataStr);
           } else if (eventName === 'complete') {
-            try {
-              const report = JSON.parse(dataStr);
-              onComplete(report);
-            } catch {
-              onLog(`[SUCCESS] Отчет получен: ${dataStr}`);
-            }
+            const report = JSON.parse(dataStr);
+            if (typeof report.allPassed !== 'boolean' || typeof report.behaviorMatched !== 'boolean'
+                || !Array.isArray(report.testResults)) throw new Error('Некорректный отчёт Quality Gate');
+            completed = true;
+            onComplete(report);
+            await reader.cancel();
+            return;
           } else if (eventName === 'error') {
-            onError(dataStr);
+            throw new Error(dataStr);
           }
         }
       }
+      if (!completed) throw new Error('Поток завершён без отчёта Quality Gate');
     } catch (err: any) {
       onError(err.message || 'Сбой потока верификации');
+    } finally {
+      clearTimeout(timer);
+      abort.abort();
     }
   },
 };

@@ -68,7 +68,7 @@ public class StubServicesConfig {
         return req -> new DecomposeResponse(req.files(), List.of(), "stub");
     }
     @Bean RunService runService() {
-        return req -> new RunResponse(true, "", "stub\n", "", 0, false, 1);
+        return req -> new RunResponse(true, "", "stub\n", "", 0, false, 1, false);
     }
     @Bean VerifyService verifyService() {
         return (req, log) -> {

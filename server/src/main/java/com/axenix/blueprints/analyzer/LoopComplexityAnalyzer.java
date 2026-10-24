@@ -3,6 +3,7 @@ package com.axenix.blueprints.analyzer;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.ArrayCreationExpr;
@@ -52,6 +53,9 @@ public class LoopComplexityAnalyzer {
         List<Finding> out = new ArrayList<>();
         for (MethodDeclaration m : cu.findAll(MethodDeclaration.class)) {
             m.getBody().ifPresent(body -> body.accept(new MethodVisitor(m.getNameAsString(), listVars, out), null));
+        }
+        for (ConstructorDeclaration c : cu.findAll(ConstructorDeclaration.class)) {
+            c.getBody().accept(new MethodVisitor(c.getNameAsString(), listVars, out), null);
         }
         return out;
     }
@@ -108,7 +112,7 @@ public class LoopComplexityAnalyzer {
         }
 
         @Override public void visit(ForEachStmt n, Void a) {
-            loop(n, isConstantIterable(n.getIterable()) || isIndexBucket(n), () -> super.visit(n, a));
+            loop(n, isConstantIterable(n.getIterable()), () -> super.visit(n, a));
         }
 
         @Override public void visit(WhileStmt n, Void a) {
@@ -161,15 +165,27 @@ public class LoopComplexityAnalyzer {
             }
         }
 
-        /** for (...; i < 10; ...) или 10 > i — константная граница. */
+        /** A loop is constant only when its bound is a literal and the update moves toward it. */
         private static boolean hasConstantBound(ForStmt f) {
-            return f.getCompare()
-                    .filter(Expression::isBinaryExpr)
-                    .map(Expression::asBinaryExpr)
-                    .filter(b -> isComparison(b.getOperator()) && (b.getRight().isLiteralExpr() || b.getLeft().isLiteralExpr()))
-                    .isPresent();
+            if (f.getCompare().isEmpty() || f.getUpdate().size() != 1 || f.getInitialization().isEmpty()) return false;
+            if (!(f.getCompare().get() instanceof BinaryExpr b) || !isComparison(b.getOperator())) return false;
+            String init = f.getInitialization().get(0).toString().trim();
+            int equals = init.indexOf('=');
+            if (equals < 0) return false;
+            if (!init.substring(equals + 1).trim().matches("-?[0-9_]+[lL]?")) return false;
+            String variable = init.substring(0, equals).trim();
+            variable = variable.substring(variable.lastIndexOf(' ') + 1);
+            String update = f.getUpdate().get(0).toString();
+            boolean increment = update.equals(variable + "++") || update.equals("++" + variable);
+            boolean decrement = update.equals(variable + "--") || update.equals("--" + variable);
+            if (!increment && !decrement) return false;
+            boolean rightLiteral = b.getRight().isLiteralExpr() && b.getLeft().toString().equals(variable);
+            boolean leftLiteral = b.getLeft().isLiteralExpr() && b.getRight().toString().equals(variable);
+            return (increment && (rightLiteral && (b.getOperator() == BinaryExpr.Operator.LESS || b.getOperator() == BinaryExpr.Operator.LESS_EQUALS)
+                    || leftLiteral && (b.getOperator() == BinaryExpr.Operator.GREATER || b.getOperator() == BinaryExpr.Operator.GREATER_EQUALS)))
+                    || (decrement && (rightLiteral && (b.getOperator() == BinaryExpr.Operator.GREATER || b.getOperator() == BinaryExpr.Operator.GREATER_EQUALS)
+                    || leftLiteral && (b.getOperator() == BinaryExpr.Operator.LESS || b.getOperator() == BinaryExpr.Operator.LESS_EQUALS)));
         }
-
         private static boolean isComparison(BinaryExpr.Operator op) {
             return switch (op) {
                 case LESS, LESS_EQUALS, GREATER, GREATER_EQUALS, NOT_EQUALS -> true;
@@ -184,26 +200,6 @@ public class LoopComplexityAnalyzer {
                 return CONSTANT_FACTORIES.contains(mc.getNameAsString())
                         && mc.getScope().map(s -> s.toString().equals("List") || s.toString().equals("Arrays")
                         || s.toString().equals("Set")).orElse(false);
-            }
-            return false;
-        }
-
-        /**
-         * foreach по «корзине» хеш-индекса: {@code List<X> m = index.get(key); for (X x : m)}.
-         * Суммарно по внешнему циклу корзины дают число совпадений, а не n·m, поэтому такой цикл не считается линейным
-         * (так выглядит результат автофикса вложенных циклов).
-         */
-        private static boolean isIndexBucket(ForEachStmt n) {
-            if (!(n.getIterable() instanceof com.github.javaparser.ast.expr.NameExpr name)) return false;
-            var method = n.findAncestor(com.github.javaparser.ast.body.CallableDeclaration.class).orElse(null);
-            if (method == null) return false;
-            for (var vd : method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
-                if (vd.getNameAsString().equals(name.getNameAsString()) && vd.getInitializer()
-                        .filter(i -> i instanceof MethodCallExpr mc && mc.getNameAsString().equals("get")
-                                && mc.getScope().filter(sc -> sc instanceof com.github.javaparser.ast.expr.NameExpr).isPresent()
-                                && mc.getArguments().size() == 1).isPresent()) {
-                    return true;
-                }
             }
             return false;
         }

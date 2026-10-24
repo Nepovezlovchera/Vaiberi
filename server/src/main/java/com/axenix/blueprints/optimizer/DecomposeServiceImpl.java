@@ -5,6 +5,7 @@ import com.axenix.blueprints.model.Dto.DecomposeResponse;
 import com.axenix.blueprints.model.Dto.ProjectFile;
 import com.axenix.blueprints.model.Services.DecomposeService;
 import com.axenix.blueprints.parser.ProjectModel;
+import com.axenix.blueprints.parser.CompileErrorException;
 import com.axenix.blueprints.sandbox.CompilerService;
 import com.axenix.blueprints.sandbox.RunServiceImpl;
 import com.github.javaparser.ast.CompilationUnit;
@@ -16,6 +17,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.nodeTypes.NodeWithModifiers;
 
 import java.io.IOException;
@@ -64,6 +66,23 @@ public class DecomposeServiceImpl implements DecomposeService {
             String dir = path.contains("/") ? path.substring(0, path.lastIndexOf('/') + 1) : "";
             if (extract) extractNested(pm, path, cu, dir, taken, created, notes);
         }
+        Set<String> extractedTypes = new HashSet<>();
+        for (ProjectFile file : created) {
+            if (!file.path().contains("/") && file.path().endsWith(".java"))
+                extractedTypes.add(file.path().substring(0, file.path().length() - 5));
+        }
+        for (var unit : new ArrayList<>(pm.units.entrySet())) {
+            String source = unit.getValue().toString();
+            String rewritten = source;
+            for (String type : extractedTypes)
+                rewritten = rewritten.replaceAll("\\b[A-Za-z_$][A-Za-z0-9_$]*\\." + Pattern.quote(type) + "\\b", type);
+            if (!rewritten.equals(source)) {
+                pm.units.put(unit.getKey(), ProjectModel.parseUnit(ProjectModel.newParser(), unit.getKey(), rewritten));
+                pm.touch(unit.getKey());
+            }
+        }
+
+
         if (split) {
             for (var entry : new ArrayList<>(pm.units.entrySet())) {
                 String path = entry.getKey();
@@ -74,6 +93,10 @@ public class DecomposeServiceImpl implements DecomposeService {
         if (created.isEmpty()) {
             return new DecomposeResponse(req.files(), List.of(), "Нечего выносить: подходящих классов и методов не найдено."
                     + (notes.isEmpty() ? "" : " " + String.join("; ", notes)));
+        }
+        // Rebuild tokens from the final AST: lexical printing can retain an obsolete type scope.
+        for (var unit : new ArrayList<>(pm.units.entrySet())) {
+            pm.units.put(unit.getKey(), ProjectModel.newParser().parse(unit.getValue().toString()).getResult().orElseThrow());
         }
         List<ProjectFile> all = new ArrayList<>(pm.render());
         all.addAll(created);
@@ -89,10 +112,29 @@ public class DecomposeServiceImpl implements DecomposeService {
             for (BodyDeclaration<?> member : new ArrayList<>(outer.getMembers())) {
                 if (!(member instanceof ClassOrInterfaceDeclaration nested)) continue;
                 if (!nested.isStatic() && !nested.isInterface()) continue; // inner-классы зависят от экземпляра внешнего
+                Set<String> outerFields = new HashSet<>();
+                outer.getFields().forEach(field -> field.getVariables().forEach(v -> outerFields.add(v.getNameAsString())));
+                if (nested.findAll(NameExpr.class).stream().anyMatch(n -> outerFields.contains(n.getNameAsString()))) {
+                    notes.add("пропущен " + nested.getNameAsString() + ": зависит от поля внешнего класса");
+                    continue;
+                }
                 String newPath = dir + nested.getNameAsString() + ".java";
                 if (!taken.add(newPath)) {
                     notes.add("пропущен " + nested.getNameAsString() + ": файл " + newPath + " уже существует");
                     continue;
+                }
+                String outerName = outer.getNameAsString();
+                String nestedName = nested.getNameAsString();
+                for (var unit : new ArrayList<>(pm.units.entrySet())) {
+                    if (!unit.getValue().getPackageDeclaration().map(Object::toString)
+                            .equals(cu.getPackageDeclaration().map(Object::toString))) continue;
+                    for (ClassOrInterfaceType reference : unit.getValue().findAll(ClassOrInterfaceType.class)) {
+                        if (reference.getNameAsString().equals(nestedName)
+                                && reference.getScope().filter(s -> s.toString().equals(outerName)).isPresent()) {
+                            reference.removeScope();
+                            pm.touch(unit.getKey());
+                        }
+                    }
                 }
                 created.add(new ProjectFile(newPath, extract(cu, nested)));
                 nested.remove();
@@ -148,6 +190,18 @@ public class DecomposeServiceImpl implements DecomposeService {
                 if (taken.contains(dir + c + ".java") || c.equals(outer.getNameAsString())) {
                     notes.add("группа " + c + " пропущена: файл " + dir + c + ".java уже существует");
                     dest.values().removeIf(c::equals);
+                }
+            }
+            if (dest.isEmpty()) continue;
+
+            // Moving a method without its shared fields changes both binding and initialization order.
+            // Keep such methods in the owner; rewriteCalls will qualify calls from extracted helpers.
+            Set<String> fields = new HashSet<>();
+            outer.getFields().forEach(field -> field.getVariables().forEach(v -> fields.add(v.getNameAsString())));
+            for (MethodDeclaration method : statics) {
+                if (method.findAll(NameExpr.class).stream().anyMatch(n -> fields.contains(n.getNameAsString()))) {
+                    dest.remove(method.getNameAsString());
+                    notes.add("метод " + method.getNameAsString() + " оставлен в " + outer.getNameAsString() + ": использует поле");
                 }
             }
             if (dest.isEmpty()) continue;
@@ -233,9 +287,10 @@ public class DecomposeServiceImpl implements DecomposeService {
         try {
             dir = Files.createTempDirectory("bp-dec-");
             CompilerService.CompileResult r = compiler.compile(files, dir);
-            return r.ok() ? "Компиляция после декомпозиции: успешно." : "Компиляция после декомпозиции: ОШИБКА — " + r.output();
+            if (!r.ok()) throw new CompileErrorException("Декомпозиция отклонена: результат не компилируется — " + r.output());
+            return "Компиляция после декомпозиции: успешно.";
         } catch (IOException e) {
-            return "Компиляцию проверить не удалось: " + e.getMessage();
+            throw new IllegalStateException("Компиляцию результата декомпозиции проверить не удалось", e);
         } finally {
             RunServiceImpl.deleteQuietly(dir);
         }

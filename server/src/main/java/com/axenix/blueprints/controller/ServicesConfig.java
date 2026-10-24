@@ -10,6 +10,7 @@ import com.axenix.blueprints.parser.ParseServiceImpl;
 import com.axenix.blueprints.sandbox.CompilerService;
 import com.axenix.blueprints.sandbox.InteractiveRunService;
 import com.axenix.blueprints.sandbox.ProcessRunner;
+import com.axenix.blueprints.sandbox.RemoteProcessRunner;
 import com.axenix.blueprints.sandbox.ReportStore;
 import com.axenix.blueprints.sandbox.RunServiceImpl;
 import com.axenix.blueprints.sandbox.VerifyServiceImpl;
@@ -28,21 +29,20 @@ public class ServicesConfig {
     @Bean CompilerService compilerService() { return new CompilerService(); }
 
     @Bean ProcessRunner processRunner(@Value("${blueprints.runner.timeout-ms:3000}") long timeoutMs,
-                                      @Value("${blueprints.runner.heap:256m}") String heap) {
-        return new ProcessRunner(timeoutMs, heap);
+                                      @Value("${blueprints.runner.heap:256m}") String heap,
+                                      @Value("${RUNNER_URL:}") String runnerUrl) {
+        return runnerUrl.isBlank() ? new ProcessRunner(timeoutMs, heap) : new RemoteProcessRunner(runnerUrl);
     }
 
-    @Bean ReportStore reportStore(@Value("${blueprints.report.path:verification_report.json}") String path) {
+    @Bean ReportStore reportStore(@Value("${blueprints.report.path:}") String path) {
         return new ReportStore(path == null || path.isBlank() ? null : Path.of(path));
     }
 
     @Bean AnalyzerServiceImpl analyzerServiceImpl() { return new AnalyzerServiceImpl(); }
 
-    @Bean AnalyzerService analyzerService(AnalyzerServiceImpl impl) { return impl; }
 
     @Bean ParseServiceImpl parseServiceImpl(AnalyzerServiceImpl analyzer) { return new ParseServiceImpl(analyzer); }
 
-    @Bean GraphService graphService(ParseServiceImpl impl) { return impl; }
 
     @Bean GraphEditService graphEditService(ParseServiceImpl parse, CompilerService compiler) {
         return new GraphEditServiceImpl(parse, compiler);

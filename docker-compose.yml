@@ -3,31 +3,66 @@ services:
     image: javablueprints-server:latest
     build: ./server
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       # Заглушки для работы фронта без бэкенда: SPRING_PROFILES_ACTIVE=stub
       # LLM (необязательно): без ключа работает только кэш ответов в /app/llm-cache
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_API_URL: ${LLM_API_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      RUNNER_URL: http://runner:8090
+    networks: [default, sandbox]
+    depends_on:
+      runner:
+        condition: service_healthy
     volumes:
       - llm-cache:/app/llm-cache
     # runner запускает чужой код в отдельных JVM внутри контейнера: ограничиваем ресурсы
     mem_limit: 1g
     cpus: 2
+    pids_limit: 192
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080"]
       interval: 10s
+      retries: 10
+
+  runner:
+    image: javablueprints-server:latest
+    build: ./server
+    entrypoint: ["java", "-Dloader.main=com.axenix.blueprints.sandbox.SandboxWorker", "-cp", "app.jar", "org.springframework.boot.loader.launch.PropertiesLauncher"]
+    networks: [sandbox]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 128
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8090"]
+      interval: 5s
       retries: 10
 
   client:
     image: javablueprints-client:latest
     build: ./client
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
     depends_on:
       server:
         condition: service_healthy
 
 volumes:
   llm-cache:
+
+networks:
+  sandbox:
+    internal: true

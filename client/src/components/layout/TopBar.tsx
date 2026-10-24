@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import JSZip from 'jszip';
 import { useStudioStore } from '../../store/useStudioStore';
 import {
   UploadCloud,
@@ -41,15 +42,15 @@ export const TopBar: React.FC = () => {
     fileInputRef.current?.click();
   };
 
-  const MAX_JAVA_FILE_SIZE = 2 * 1024 * 1024; // 2 MB limit (Client-side DoS prevention)
+  const MAX_JAVA_FILE_SIZE = 1_000_000;
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = Array.from(e.target.files || []).filter((f) => f.name.endsWith('.java'));
     const input = e.target;
     const tooBig = list.find((f) => f.size > MAX_JAVA_FILE_SIZE);
     if (tooBig) {
-      addConsoleLog(`[SECURITY WARNING] Файл «${tooBig.name}» превышает лимит 2 МБ.`);
-      alert(`Файл «${tooBig.name}» превышает допустимый размер (максимум 2 МБ).`);
+      addConsoleLog(`[ERROR] Файл «${tooBig.name}» превышает лимит 1 МБ.`);
+      alert(`Файл «${tooBig.name}» превышает допустимый размер (максимум 1 МБ).`);
     } else if (list.length > 0) {
       const loaded = await Promise.all(
         list.map(
@@ -66,13 +67,22 @@ export const TopBar: React.FC = () => {
     input.value = '';
   };
 
-  const handleExport = () => {
-    const { code } = useStudioStore.getState();
-    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+  const handleExport = async () => {
+    const { files, tests } = useStudioStore.getState();
+    const allFiles = files.flatMap(function flatten(item): { path: string; source: string }[] {
+      if (item.type === 'file') return [{ path: item.path.replace(/^src\//, ''), source: item.code || '' }];
+      return (item.children || []).flatMap(flatten);
+    });
+    const archive = new JSZip();
+    allFiles.forEach((file) => archive.file(file.path, file.source));
+    archive.file('tests.json', JSON.stringify(tests.map(({ id, name, stdin, expectedStdout }) =>
+      ({ id, name, stdin, expectedStdout })), null, 2));
+    archive.file('README.txt', 'Java Blueprints export\nCompile: javac -encoding UTF-8 -d classes <all .java paths>\nRun: java -cp classes <full main class name>\n');
+    const blob = await archive.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = isOptimized ? 'MainOptimized.java' : 'Main.java';
+    link.download = 'java-blueprints-project.zip';
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -138,7 +148,7 @@ export const TopBar: React.FC = () => {
         <button
           onClick={handleExport}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 border border-border transition shrink-0 whitespace-nowrap"
-          title="Экспорт Java файла"
+          title="Экспорт всего проекта и тестов в ZIP"
         >
           <Download className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
           <span className="hidden xl:inline">Экспорт Java</span>
@@ -176,10 +186,10 @@ export const TopBar: React.FC = () => {
               ? 'bg-amber-500 text-black border-amber-400 font-bold shadow-lg shadow-amber-500/20'
               : 'text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 border-border'
           }`}
-          title="Визуальный трассировщик потока управления (Visual CFG Tracer)"
+          title="Обход узлов графа без исполнения Java"
         >
           <Bug className={`w-3.5 h-3.5 shrink-0 ${isDebugging ? 'text-black' : 'text-amber-400'}`} />
-          <span>{isDebugging ? 'Стоп трассировка' : 'Дебаг'}</span>
+          <span>{isDebugging ? 'Стоп обход' : 'Обход графа'}</span>
         </button>
 
         <div className="h-4 w-px bg-border mx-0.5 shrink-0" />

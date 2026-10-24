@@ -100,5 +100,5 @@ public final class Dto {
     /** Ввод в запущенную интерактивную сессию: текст (с \n) и/или признак конца ввода (EOF). */
     public record StdinRequest(String text, boolean eof) {}
     public record RunResponse(boolean compiled, String compileOutput, String stdout, String stderr,
-                              int exitCode, boolean timedOut, long millis) {}
+                              int exitCode, boolean timedOut, long millis, boolean outputTruncated) {}
 }

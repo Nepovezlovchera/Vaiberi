@@ -158,11 +158,16 @@ class GraphShapesTest {
     @Test
     void fallthroughCaseKeepsEntryIndexes() {
         MethodGraphResponse g = method(SRC, "Main.old");
-        // запись `case 1:` пустая — узлов и рёбер нет, но индексы следующих записей не сдвигаются
+        // Both labels enter the same body; empty entries keep the subsequent slot indexes.
         assertEquals("op", node(g, "Main.old/s2.s1.1").type());
         assertEquals("break", node(g, "Main.old/s2.s1.2").type());
         assertEquals("op", node(g, "Main.old/s2.s2.1").type());
-        assertEquals("case 2", edge(g, "Main.old/s2", "Main.old/s2.s1.1").label());
+        assertTrue(g.edges().stream().anyMatch(e -> e.source().equals("Main.old/s2")
+                && e.target().equals("Main.old/s2.s1.1") && "case 1".equals(e.label())));
+        assertTrue(g.edges().stream().anyMatch(e -> e.source().equals("Main.old/s2")
+                && e.target().equals("Main.old/s2.s1.1") && "case 2".equals(e.label())));
+        assertEquals("Main.pairs/s2", edge(method(SRC, "Main.pairs"), "Main.pairs/s2.b.1.b.1.t.1", "Main.pairs/s2").target());
+        assertEquals("Main.pairs/s3", edge(method(SRC, "Main.pairs"), "Main.pairs/s2.b.1.b.2.t.1", "Main.pairs/s3").target());
         assertEquals("default", edge(g, "Main.old/s2", "Main.old/s2.s2.1").label());
         assertFalse(g.nodes().stream().anyMatch(n -> n.id().startsWith("Main.old/s2.s0.")));
     }

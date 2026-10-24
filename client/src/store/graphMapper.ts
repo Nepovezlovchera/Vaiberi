@@ -148,7 +148,7 @@ export function methodToFlow(method: MethodGraphResponseDto, issues: CodeIssue[]
     const isImplicitFalse = srcType === 'condition' && handle === 'false' && e.type === 'next';
     const kind = isImplicitFalse ? 'false' : e.type;
     // После return/throw/break/continue поток не идёт: следующий оператор блока недостижим
-    const unreachable = e.type === 'next' && JUMP_TYPES.has(srcType);
+    const unreachable = e.type === 'next' && (srcType === 'return' || srcType === 'throw');
     // Бэкенд подписывает ветки switch текстом case («case 1», «default»); служебное «body» заменяем
     const bodyLabel = srcType === 'switch' ? 'case' : srcType === 'try' ? 'try' : undefined;
     const serverLabel = e.label && e.label !== 'body' ? e.label : undefined;

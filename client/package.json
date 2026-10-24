@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "node scripts/regressions.cjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -13,6 +14,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@xyflow/react": "^12.3.6",
     "clsx": "^2.1.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.475.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -30,5 +32,8 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
     "vite": "^6.1.0"
+  },
+  "overrides": {
+    "dompurify": ">=3.4.17"
   }
 }

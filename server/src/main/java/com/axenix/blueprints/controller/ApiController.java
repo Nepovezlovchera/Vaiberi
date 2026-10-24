@@ -3,7 +3,6 @@ package com.axenix.blueprints.controller;
 import com.axenix.blueprints.model.Dto.*;
 import com.axenix.blueprints.model.Services.*;
 import com.axenix.blueprints.sandbox.InteractiveRunService;
-import com.axenix.blueprints.sandbox.ReportStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.MediaType;
@@ -17,10 +16,14 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 
 @RestController
 @RequestMapping("/api")
-@CrossOrigin // на хакатоне достаточно; для прода заменить на конкретный origin
+@CrossOrigin(origins = "${blueprints.cors.allowed-origin:http://localhost:3000}")
 public class ApiController {
 
     private final GraphService graphService;
@@ -32,13 +35,23 @@ public class ApiController {
     private final RunService runService;
     private final Optional<InteractiveRunService> interactive;
     private static final ObjectMapper JSON = new ObjectMapper();
-    private final ReportStore reports;
-    private final ExecutorService streams = Executors.newCachedThreadPool();
+    // Ограниченный пул для потоков Quality Gate (лимит из error-fix_Jomo)
+    private final ExecutorService streams = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(4), new ThreadPoolExecutor.AbortPolicy());
+    // Отдельный ограниченный пул для интерактивных запусков: сессия живёт долго и не должна занимать потоки Quality Gate
+    private final ExecutorService interactiveStreams = new ThreadPoolExecutor(4, 4, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(4), new ThreadPoolExecutor.AbortPolicy());
+
+    @PreDestroy
+    public void closeStreams() {
+        streams.shutdownNow();
+        interactiveStreams.shutdownNow();
+    }
 
     public ApiController(GraphService graphService, GraphEditService graphEditService,
                          AnalyzerService analyzerService, OptimizerService optimizerService,
                          DecomposeService decomposeService, VerifyService verifyService,
-                         RunService runService, ReportStore reports,
+                         RunService runService,
                          Optional<InteractiveRunService> interactive) {
         this.graphService = graphService;
         this.graphEditService = graphEditService;
@@ -48,7 +61,6 @@ public class ApiController {
         this.verifyService = verifyService;
         this.runService = runService;
         this.interactive = interactive;
-        this.reports = reports;
     }
 
     @GetMapping("/health")
@@ -57,33 +69,39 @@ public class ApiController {
     /** Java → граф (по графу на метод) + метрики. */
     @PostMapping("/graph")
     public GraphResponse graph(@RequestBody GraphRequest req) {
+        RequestLimits.graph(req);
         return graphService.graph(req.files(), req.methodId());
     }
 
     /** Правка графа → новый код + перестроенный граф (с проверкой компиляции). */
     @PostMapping("/graph/mutate")
     public MutateResponse mutate(@RequestBody MutateRequest req) {
+        RequestLimits.mutate(req);
         return graphEditService.mutate(req);
     }
 
     @PostMapping("/analysis")
     public AnalysisReport analysis(@RequestBody FilesRequest req) {
+        RequestLimits.filesRequest(req);
         return analyzerService.analyze(req.files());
     }
 
     @PostMapping("/optimize")
     public OptimizeResponse optimize(@RequestBody OptimizeRequest req) {
+        RequestLimits.optimize(req);
         return optimizerService.optimize(req);
     }
 
     @PostMapping("/decompose")
     public DecomposeResponse decompose(@RequestBody DecomposeRequest req) {
+        RequestLimits.decompose(req);
         return decomposeService.decompose(req);
     }
 
     /** Quality Gate, синхронный вариант. */
     @PostMapping("/verify")
     public VerificationReport verify(@RequestBody VerifyRequest req) {
+        RequestLimits.verify(req);
         return verifyService.verify(req);
     }
 
@@ -93,7 +111,8 @@ public class ApiController {
      */
     @PostMapping(value = "/verify/stream", produces = "text/event-stream")
     public SseEmitter verifyStream(@RequestBody VerifyRequest req) {
-        SseEmitter emitter = new SseEmitter(180_000L);
+        RequestLimits.verify(req);
+        SseEmitter emitter = new SseEmitter(700_000L);
         streams.submit(() -> {
             try {
                 VerificationReport report = verifyService.verify(req, line -> {
@@ -107,7 +126,7 @@ public class ApiController {
                 emitter.complete();
             } catch (Exception e) {
                 try {
-                    emitter.send(SseEmitter.event().name("error").data(String.valueOf(e.getMessage())));
+                    emitter.send(SseEmitter.event().name("error").data("Проверка не завершена. Повторите запрос."));
                 } catch (IOException ignored) {
                     // нечего сообщать закрытому потоку
                 }
@@ -117,15 +136,10 @@ public class ApiController {
         return emitter;
     }
 
-    /** Последний сохранённый verification_report.json. */
-    @GetMapping(value = "/verify/report", produces = "application/json")
-    public String report() {
-        return reports.load().orElseThrow(() -> new NoSuchElementException("Отчёт ещё не создан: запустите /api/verify"));
-    }
-
     /** Скомпилировать и запустить проект (консоль). */
     @PostMapping("/run")
     public RunResponse run(@RequestBody RunRequest req) {
+        RequestLimits.run(req);
         return runService.run(req);
     }
 
@@ -157,7 +171,8 @@ public class ApiController {
         emitter.onCompletion(kill);
         emitter.onTimeout(kill);
         emitter.onError(t -> kill.run());
-        streams.submit(() -> {
+        try {
+            interactiveStreams.submit(() -> {
             try {
                 svc.run(req, new InteractiveRunService.Listener() {
                     private void send(String name, String data) {
@@ -192,7 +207,15 @@ public class ApiController {
                 }
                 emitter.complete();
             }
-        });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException busy) {
+            try {
+                emitter.send(SseEmitter.event().name("error").data(json("Сервер занят запусками. Повторите позже.")));
+            } catch (IOException | IllegalStateException ignored) {
+                // клиент уже ушёл
+            }
+            emitter.complete();
+        }
         return emitter;
     }
 

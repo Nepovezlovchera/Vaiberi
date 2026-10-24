@@ -65,6 +65,7 @@ public final class TemplateFixes {
 
         Statement loop = enclosingLoop(call);
         if (loop == null || !(loop.getParentNode().orElse(null) instanceof BlockStmt block)) return Optional.empty();
+        if (guardedFallback(loop)) return Optional.empty();
         CallableDeclaration<?> method = call.findAncestor(CallableDeclaration.class).orElse(null);
         if (method == null) return Optional.empty();
 
@@ -72,6 +73,8 @@ public final class TemplateFixes {
         if (!(declared instanceof ClassOrInterfaceType ct) || !isList(ct)) return Optional.empty();
         if (ct.getTypeArguments().isEmpty() || ct.getTypeArguments().get().size() != 1) return Optional.empty();
         String elementType = ct.getTypeArguments().get().get(0).toString();
+        if (!Set.of("String", "Integer", "Long", "Short", "Byte", "Character", "Boolean", "Double", "Float")
+                .contains(elementType)) return Optional.empty();
 
         // переменная должна быть объявлена вне цикла
         for (VariableDeclarator vd : loop.findAll(VariableDeclarator.class)) {
@@ -83,6 +86,15 @@ public final class TemplateFixes {
         for (MethodCallExpr mc : loop.findAll(MethodCallExpr.class)) {
             if (mc.getScope().filter(s -> s.isNameExpr() && s.asNameExpr().getNameAsString().equals(var)).isPresent()
                     && MUTATORS.contains(mc.getNameAsString())) mutations.add(mc.getNameAsString());
+        }
+        // An alias can observe later mutations; a snapshot Set would change the program.
+        for (VariableDeclarator vd : method.findAll(VariableDeclarator.class)) {
+            if (vd.getInitializer().filter(i -> i.isNameExpr() && i.asNameExpr().getNameAsString().equals(var)).isPresent()
+                    && !vd.getNameAsString().equals(var)) return Optional.empty();
+        }
+        for (AssignExpr assignment : method.findAll(AssignExpr.class)) {
+            if (assignment.getValue().isNameExpr() && assignment.getValue().asNameExpr().getNameAsString().equals(var))
+                return Optional.empty();
         }
         // список не должен "утекать" в вызовы других методов, которые могли бы его менять
         for (MethodCallExpr mc : loop.findAll(MethodCallExpr.class)) {
@@ -107,6 +119,20 @@ public final class TemplateFixes {
         } else if (mutations.equals(Set.of("add")) && call.getParentNode().orElse(null) instanceof UnaryExpr ue
                 && ue.getOperator() == UnaryExpr.Operator.LOGICAL_COMPLEMENT
                 && ue.getParentNode().orElse(null) instanceof IfStmt is && is.getCondition() == ue) {
+            Statement then = is.getThenStmt();
+            Statement single = then instanceof BlockStmt body && body.getStatements().size() == 1
+                    ? body.getStatement(0) : then;
+            if (!(single instanceof com.github.javaparser.ast.stmt.ExpressionStmt es)
+                    || !(es.getExpression() instanceof MethodCallExpr)) return Optional.empty();
+            long addCount = loop.findAll(MethodCallExpr.class).stream().filter(mc -> mc.getNameAsString().equals("add")
+                    && mc.getScope().filter(s -> s.toString().equals(var)).isPresent()).count();
+            if (addCount != 1 || is.getElseStmt().isPresent()) return Optional.empty();
+            MethodCallExpr add = loop.findAll(MethodCallExpr.class).stream()
+                    .filter(mc -> mc.getNameAsString().equals("add") && mc.getScope().filter(s -> s.isNameExpr()
+                            && s.asNameExpr().getNameAsString().equals(var)).isPresent())
+                    .findFirst().orElse(null);
+            if (add == null || add.getArguments().size() != 1 || !add.getArgument(0).toString().equals(arg.toString()))
+                return Optional.empty();
             Expression replacement = parseExpr(parser, setName + ".add(" + arg + ")");
             if (replacement == null) return Optional.empty();
             ue.replace(replacement);
@@ -177,6 +203,9 @@ public final class TemplateFixes {
         if (!distinct || keyA == null || keyB == null || !inner.getIterable().toString().equals(outer.getIterable().toString())) {
             return Optional.empty();
         }
+        if (guardedFallback(outer) || !outer.getIterable().isNameExpr()
+                || !keyA.findAll(MethodCallExpr.class).isEmpty() || !keyB.findAll(MethodCallExpr.class).isEmpty()) return Optional.empty();
+        Statement originalLoop = parseStmt(new JavaParser(), outer.toString());
         CallableDeclaration<?> method = outer.findAncestor(CallableDeclaration.class).orElse(null);
         if (method == null) return Optional.empty();
 
@@ -198,6 +227,7 @@ public final class TemplateFixes {
                 || add.getScope().filter(Expression::isNameExpr).isEmpty()) return Optional.empty();
         if (contains == null || add == null || !contains.getScope().get().toString().equals(add.getScope().get().toString())
                 || !contains.getArgument(0).toString().equals(add.getArgument(0).toString())) return Optional.empty();
+        if (!contains.getArgument(0).toString().equals(keyA.toString())) return Optional.empty();
         String result = contains.getScope().get().toString();
         String src = outer.getIterable().toString();
         String elem = outer.getVariable().getCommonType().toString();
@@ -209,7 +239,7 @@ public final class TemplateFixes {
         JavaParser parser = new JavaParser();
         Statement seenDecl = parseStmt(parser, "Set<Object> " + seen + " = new HashSet<>();");
         Statement dupDecl = parseStmt(parser, "Set<Object> " + duplicate + " = new HashSet<>();");
-        Statement emitDecl = parseStmt(parser, "Set<Object> " + emitted + " = new HashSet<>();");
+        Statement emitDecl = parseStmt(parser, "Set<Object> " + emitted + " = new HashSet<>(" + result + ");");
         Statement scan = parseStmt(parser, "for (" + elem + " " + item + " : " + src + ") { if (!" + seen
                 + ".add(" + firstKey + ")) " + duplicate + ".add(" + firstKey + "); }");
         Statement emit = parseStmt(parser, "for (" + elem + " " + item + " : " + src + ") { if (" + duplicate
@@ -222,6 +252,8 @@ public final class TemplateFixes {
         outerBlock.getStatements().add(at + 3, emitDecl);
         outerBlock.getStatements().add(at + 4, emit);
         outerBlock.getStatements().remove(outer);
+        guarded(outerBlock, at, 5, originalLoop, src + " != null && " + src + ".stream().distinct().count() == " + src
+                + ".size() && " + src + ".stream().allMatch(" + a + " -> " + a + " != null && " + safeKey(keyA) + ")", parser);
         ensureImport(cu, "java.util.Set");
         ensureImport(cu, "java.util.HashSet");
         return Optional.of("Вложенный поиск повторяющихся ключей заменён линейными проходами через HashSet: O(n²) → O(n).");
@@ -250,6 +282,8 @@ public final class TemplateFixes {
             }
         }
         if (outer == null || !(outer.getParentNode().orElse(null) instanceof BlockStmt outerBlock)) return Optional.empty();
+        if (guardedFallback(outer)) return Optional.empty();
+        Statement originalLoop = parseStmt(new JavaParser(), outer.toString());
         if (!(outer.getBody() instanceof BlockStmt body)) return Optional.empty();
         ForEachStmt inner = null;
         for (Statement st : body.getStatements()) {
@@ -347,11 +381,16 @@ public final class TemplateFixes {
         int at = outerBlock.getStatements().indexOf(outer);
         outerBlock.getStatements().add(at, mapDecl);
         outerBlock.getStatements().add(at + 1, fill);
+        String sourceA = outer.getIterable().toString();
+        String safe = sourceA + " != null && " + src + " != null && "
+                + sourceA + ".stream().allMatch(" + a + " -> " + a + " != null && " + safeKey(keyA) + ") && "
+                + src + ".stream().allMatch(" + b + " -> " + b + " != null && " + safeKey(keyB) + ")";
+        guarded(outerBlock, at, 3, originalLoop, safe, parser);
         ensureImport(cu, "java.util.Map");
         ensureImport(cu, "java.util.HashMap");
         ensureImport(cu, "java.util.List");
         ensureImport(cu, "java.util.ArrayList");
-        return Optional.of("Вложенный поиск по ключу заменён индексом HashMap, построенным один раз перед внешним циклом: O(n²) → O(n). "
+        return Optional.of("Вложенный поиск заменён индексом HashMap: ожидаемо O(n + m + k), где k — число совпавших пар. Для null и нестандартных ключей сохраняется исходный алгоритм. "
                 + "Добавлено: Map<Object, List<" + elem + ">> " + mapName + ".");
     }
 
@@ -374,6 +413,8 @@ public final class TemplateFixes {
             }
         }
         if (outer == null || !(outer.getParentNode().orElse(null) instanceof BlockStmt outerBlock)) return Optional.empty();
+        if (guardedFallback(outer)) return Optional.empty();
+        Statement originalLoop = parseStmt(new JavaParser(), outer.toString());
         CallableDeclaration<?> method = outer.findAncestor(CallableDeclaration.class).orElse(null);
         if (method == null) return Optional.empty();
         String i = loopVar(outer, false);
@@ -433,6 +474,7 @@ public final class TemplateFixes {
         if (coll == null) return Optional.empty();
         final String X = coll;
         if (!usesElementAccess(keyI, X, i) || !usesElementAccess(keyJ, X, j)) return Optional.empty();
+        if (viaEquals && (keyI.isNameExpr() || keyJ.isNameExpr())) return Optional.empty();
         if (!viaEquals && !(isPrimitiveKey(cu, method, X, keyI, i) && isPrimitiveKey(cu, method, X, keyJ, j))) return Optional.empty();
 
         // коллекция, границы и индексы не меняются во внешнем цикле
@@ -488,12 +530,20 @@ public final class TemplateFixes {
         int at = outerBlock.getStatements().indexOf(outer);
         outerBlock.getStatements().add(at, mapDecl);
         outerBlock.getStatements().add(at + 1, fill);
+        if (viaEquals) {
+            // A nullable equals receiver must still throw as in the original, so use the original loop for it.
+            String probe = freshName(method, "probe");
+            String probeKey = keyI.toString().replaceAll("\\b" + java.util.regex.Pattern.quote(i) + "\\b", probe);
+            String guardExpression = "java.util.stream.IntStream.range(0, " + bound + ").allMatch(" + probe
+                    + " -> " + safeKey(parseExpr(parser, probeKey)) + ")";
+            guarded(outerBlock, at, 3, originalLoop, guardExpression, parser);
+        }
         ensureImport(cu, "java.util.Map");
         ensureImport(cu, "java.util.HashMap");
         ensureImport(cu, "java.util.List");
         ensureImport(cu, "java.util.ArrayList");
         return Optional.of("Вложенные индексные циклы с сопоставлением по ключу заменены индексом позиций HashMap, построенным один раз: "
-                + "O(n²) → O(n). Добавлено: Map<Object, List<Integer>> " + mapName + ".");
+                + "ожидаемо O(n + k), где k — число совпавших пар; худший случай остаётся O(n²). Добавлено: Map<Object, List<Integer>> " + mapName + ".");
     }
 
     /** Имя счётчика цикла for (int v = ...; ...) с одной переменной; null, если форма другая. */
@@ -595,6 +645,31 @@ public final class TemplateFixes {
     private static boolean refs(Expression e, String name) {
         for (NameExpr n : e.findAll(NameExpr.class)) if (n.getNameAsString().equals(name)) return true;
         return false;
+    }
+
+    private static String safeKey(Expression key) {
+        String value = "((Object) (" + key + "))";
+        return "(" + value + " instanceof String || " + value + " instanceof Integer || " + value
+                + " instanceof Long || " + value + " instanceof Short || " + value + " instanceof Byte || "
+                + value + " instanceof Character || " + value + " instanceof Boolean)";
+    }
+
+    private static boolean guardedFallback(Node node) {
+        Node parent = node.getParentNode().orElse(null);
+        while (parent != null) {
+            if (parent instanceof IfStmt branch && branch.getCondition().toString().contains(".allMatch(")) return true;
+            parent = parent.getParentNode().orElse(null);
+        }
+        return false;
+    }
+
+    private static void guarded(BlockStmt block, int at, int count, Statement original, String condition, JavaParser parser) {
+        IfStmt guard = parseStmt(parser, "if (" + condition + ") {} else {}").asIfStmt();
+        BlockStmt fast = guard.getThenStmt().asBlockStmt();
+        for (int k = 0; k < count; k++) fast.addStatement(block.getStatement(at + k).clone());
+        guard.getElseStmt().get().asBlockStmt().addStatement(original);
+        for (int k = 0; k < count; k++) block.getStatements().remove(at);
+        block.getStatements().add(at, guard);
     }
 
     // ---------- helpers ----------

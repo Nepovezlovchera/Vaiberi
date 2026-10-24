@@ -7,11 +7,17 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 
 import java.util.NoSuchElementException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> malformed(HttpMessageNotReadableException e) {
+        return ResponseEntity.badRequest().body(new ErrorResponse("BAD_REQUEST", "Некорректный JSON запроса", null));
+    }
 
     /** Ошибка разбора пользовательского Java: фронт покажет её в Monaco маркером. */
     @ExceptionHandler(JavaParseException.class)
@@ -38,6 +44,12 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> other(Exception e) {
-        return ResponseEntity.internalServerError().body(new ErrorResponse("INTERNAL", e.getMessage(), null));
+        org.slf4j.LoggerFactory.getLogger(ApiExceptionHandler.class).error("API request failed", e);
+        return ResponseEntity.internalServerError().body(new ErrorResponse("INTERNAL", "Внутренняя ошибка сервера", null));
+    }
+
+    @ExceptionHandler(java.util.concurrent.RejectedExecutionException.class)
+    public ResponseEntity<ErrorResponse> busy(java.util.concurrent.RejectedExecutionException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(new ErrorResponse("BUSY", "Очередь проверок заполнена", null));
     }
 }

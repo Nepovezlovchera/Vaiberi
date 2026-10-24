@@ -58,4 +58,12 @@ class LoopComplexityAnalyzerTest {
     void singleLoop_noFindings() {
         assertTrue(run("void m(int n) { for (int i=0;i<n;i++) {} }").isEmpty());
     }
+
+    @Test void decreasingBoundsAndConstructorsRemainQuadratic() {
+        assertEquals("O(n²)", run("A(int n) { for (int i=n;i>0;i--) for (int j=n;j>0;j--) {} }").get(0).complexity());
+    }
+
+    @Test void bucketsAreNotAssumedConstantByVariableName() {
+        assertEquals("O(n²)", run("void m(List<Integer> xs, Map<Integer,List<Integer>> index) { for(int x:xs) { List<Integer> matches=index.get(0); for(int y:matches) {} } }").get(0).complexity());
+    }
 }

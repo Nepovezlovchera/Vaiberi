@@ -142,13 +142,22 @@ public class VerifyServiceImpl implements VerifyService {
         ProcessRunner.RunResult o = runner.run(classesOrig, mainOrig, t.stdin());
         times[0] = o.millis();
         if (o.timedOut()) return new TestCaseResult(t.name(), "TIMEOUT", o.millis(), "Оригинал не завершился за отведённое время");
+        if (o.outputTruncated()) return new TestCaseResult(t.name(), "FAILED", o.millis(), "Вывод оригинала превысил лимит 1MB");
         ProcessRunner.RunResult m = runner.run(classesMod, mainMod, t.stdin());
         times[1] = m.millis();
         if (m.timedOut()) return new TestCaseResult(t.name(), "TIMEOUT", m.millis(), "Изменённая версия не завершилась за отведённое время");
+        if (m.outputTruncated()) return new TestCaseResult(t.name(), "FAILED", m.millis(), "Вывод изменённой версии превысил лимит 1MB");
 
-        String expectedOut = t.expectedStdout() != null ? t.expectedStdout() : o.stdout();
-        String d = OutputComparator.diff(OutputComparator.normalize(expectedOut, mode),
+        String d = OutputComparator.diff(OutputComparator.normalize(o.stdout(), mode),
                 OutputComparator.normalize(m.stdout(), mode));
+        if (t.expectedStdout() != null) {
+            String expectedDiff = OutputComparator.diff(OutputComparator.normalize(t.expectedStdout(), mode),
+                    OutputComparator.normalize(o.stdout(), mode));
+            if (expectedDiff != null) {
+                // The fixture is also checked against the original so a stale expected value cannot bless a bad edit.
+                d = "expectedStdout не совпал с оригиналом, " + expectedDiff;
+            }
+        }
         String errDiff = OutputComparator.diff(
                 OutputComparator.normalize(OutputComparator.stripStackTrace(o.stderr()), mode),
                 OutputComparator.normalize(OutputComparator.stripStackTrace(m.stderr()), mode));

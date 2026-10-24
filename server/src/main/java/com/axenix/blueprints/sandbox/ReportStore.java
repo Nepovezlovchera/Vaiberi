@@ -24,7 +24,16 @@ public class ReportStore {
         try {
             Path parent = file.toAbsolutePath().getParent();
             if (parent != null) Files.createDirectories(parent);
-            Files.writeString(file, toJson(r), StandardCharsets.UTF_8);
+            Path temporary = Files.createTempFile(parent, ".verification-", ".json");
+            try {
+                Files.writeString(temporary, toJson(r), StandardCharsets.UTF_8);
+                try {
+                    Files.move(temporary, file.toAbsolutePath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(temporary, file.toAbsolutePath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            } finally { Files.deleteIfExists(temporary); }
         } catch (IOException ignored) {
             // отчёт — удобство, а не часть ответа: сбой записи не должен ронять проверку
         }

@@ -142,13 +142,61 @@ public class InteractiveRunService {
         if (s != null) s.kill("stopped");
     }
 
+    /** Служебные предупреждения JVM из-за Security Manager: это не вывод пользовательской программы. */
+    private static final String[] JVM_WARNINGS = {
+            "WARNING: A command line option has enabled the Security Manager",
+            "WARNING: The Security Manager is deprecated and will be removed in a future release"
+    };
+
+    /**
+     * Убирает из потока stderr строки-предупреждения JVM. Фрагмент, который может оказаться началом такой строки,
+     * придерживается до перевода строки; обычный вывод (в том числе приглашение без \n) проходит сразу.
+     */
+    private static final class StderrFilter {
+        private final StringBuilder pending = new StringBuilder();
+
+        String accept(String chunk) {
+            pending.append(chunk);
+            StringBuilder out = new StringBuilder();
+            int nl;
+            while ((nl = pending.indexOf("\n")) >= 0) {
+                String line = pending.substring(0, nl);
+                pending.delete(0, nl + 1);
+                if (!isJvmWarning(line)) out.append(line).append('\n');
+            }
+            if (pending.length() > 0 && !mayBeJvmWarning(pending.toString())) {
+                out.append(pending);
+                pending.setLength(0);
+            }
+            return out.toString();
+        }
+
+        String finish() {
+            String rest = pending.toString();
+            pending.setLength(0);
+            return isJvmWarning(rest) ? "" : rest;
+        }
+
+        private static boolean isJvmWarning(String line) {
+            for (String w : JVM_WARNINGS) if (line.equals(w)) return true;
+            return false;
+        }
+
+        private static boolean mayBeJvmWarning(String partial) {
+            for (String w : JVM_WARNINGS) if (w.startsWith(partial)) return true;
+            return false;
+        }
+    }
+
     private Thread pump(Process p, boolean stderr, Session s, long[] total, Consumer<String> sink) {
         Thread t = new Thread(() -> {
             char[] buf = new char[2048];
+            StderrFilter filter = stderr ? new StderrFilter() : null;
             try (Reader r = new InputStreamReader(stderr ? p.getErrorStream() : p.getInputStream(), StandardCharsets.UTF_8)) {
                 int n;
                 while ((n = r.read(buf)) != -1) {
                     String text = new String(buf, 0, n).replace("\r", "").replace("\uFEFF", "");
+                    if (filter != null) text = filter.accept(text);
                     if (text.isEmpty()) continue;
                     s.lastActivity = System.currentTimeMillis();
                     boolean over;
@@ -161,6 +209,10 @@ public class InteractiveRunService {
                         return;
                     }
                     sink.accept(text);
+                }
+                if (filter != null) {
+                    String rest = filter.finish();
+                    if (!rest.isEmpty()) sink.accept(rest);
                 }
             } catch (IOException ignored) {
                 // поток закрыт при остановке процесса
