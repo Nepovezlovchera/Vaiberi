@@ -25,8 +25,24 @@ import { getLayoutedElements } from './layout';
 import { LayoutGrid, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 
 const FlowCanvasInternal: React.FC = () => {
-  const { nodes, edges, setNodes, setEdges, selectNode, selectedNodeId, addCustomNode, deleteSelectedNode } =
-    useStudioStore();
+  const {
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    selectNode,
+    selectedNodeId,
+    addCustomNode,
+    deleteSelectedNode,
+    methodsList,
+    activeMethodId,
+    setActiveMethodId,
+    isDebugging,
+    debugStepIndex,
+    stepDebug,
+    stopDebug,
+    isMutating,
+  } = useStudioStore();
   const { fitView, zoomIn, zoomOut } = useReactFlow();
 
   const nodeTypes = useMemo(
@@ -123,6 +139,54 @@ const FlowCanvasInternal: React.FC = () => {
 
   return (
     <div className="relative w-full h-full bg-[#0a0a0c] overflow-hidden" onDragOver={onDragOver} onDrop={onDrop}>
+      {/* Method Dropdown Selector (Слайды 3, 4 ТЗ) */}
+      {methodsList.length > 0 && (
+        <div className="absolute top-3 left-4 z-10 flex items-center gap-2 bg-surface/90 backdrop-blur border border-border px-2.5 py-1.5 rounded-lg shadow-xl">
+          <span className="text-[11px] font-semibold text-zinc-400">Метод:</span>
+          <select
+            value={activeMethodId || ''}
+            onChange={(e) => setActiveMethodId(e.target.value)}
+            className="bg-zinc-900 border border-border text-xs text-blue-400 font-semibold rounded px-2 py-0.5 focus:outline-none focus:border-blue-500 font-mono max-w-[280px] truncate"
+          >
+            {methodsList.map((m) => (
+              <option key={m.methodId} value={m.methodId}>
+                {m.signature} (строки {m.lineStart}-{m.lineEnd})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Debug Step Overlay (Слайд 4 ТЗ) */}
+      {isDebugging && (
+        <div className="absolute top-14 left-4 z-10 flex items-center gap-2 bg-amber-950/90 backdrop-blur border border-amber-500/50 px-3 py-1.5 rounded-lg shadow-2xl">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+          <span className="text-xs font-bold text-amber-300">
+            Дебаг AST: шаг {debugStepIndex + 1} из {nodes.length}
+          </span>
+          <button
+            onClick={stepDebug}
+            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded shadow transition active:scale-95"
+          >
+            След. шаг ⏭
+          </button>
+          <button
+            onClick={stopDebug}
+            className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded transition"
+          >
+            Стоп
+          </button>
+        </div>
+      )}
+
+      {/* Mutating AST Status Badge */}
+      {isMutating && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-blue-950/90 border border-blue-500/50 text-[11px] text-blue-300 flex items-center gap-2 shadow-lg">
+          <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+          Синхронизация AST...
+        </div>
+      )}
+
       {/* Top Controls Overlay */}
       <div className="absolute top-3 right-4 z-10 flex items-center gap-1.5 bg-surface/90 backdrop-blur border border-border p-1 rounded-lg shadow-xl">
         <button

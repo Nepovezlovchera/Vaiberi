@@ -72,6 +72,13 @@ export interface TestCaseResult {
 
 export type TestCaseItem = TestCaseResult;
 
+export interface MethodInfo {
+  methodId: string;
+  signature: string;
+  lineStart: number;
+  lineEnd: number;
+}
+
 export interface VerificationReport {
   allPassed: boolean;
   behaviorMatched: boolean;
@@ -84,3 +91,4 @@ export interface VerificationReport {
   passed?: number;
   total?: number;
 }
+

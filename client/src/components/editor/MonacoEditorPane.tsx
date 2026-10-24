@@ -3,10 +3,11 @@ import Editor, { OnMount } from '@monaco-editor/react';
 import { useStudioStore } from '../../store/useStudioStore';
 
 export const MonacoEditorPane: React.FC = () => {
-  const { code, setCode, activeLineRange, nodes, selectNode } = useStudioStore();
+  const { code, setCode, activeLineRange, nodes, selectNode, refreshGraphAndAnalysis } = useStudioStore();
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const decorationsRef = useRef<string[]>([]);
+  const debounceTimerRef = useRef<any>(null);
 
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -43,6 +44,18 @@ export const MonacoEditorPane: React.FC = () => {
     });
   };
 
+  const handleCodeChange = (val: string | undefined) => {
+    const newCode = val || '';
+    setCode(newCode);
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      refreshGraphAndAnalysis(newCode);
+    }, 600);
+  };
+
   // Реакция на изменение activeLineRange (клик по узлу в графе или карточке дефекта)
   useEffect(() => {
     if (!editorRef.current || !monacoRef.current || !activeLineRange) return;
@@ -72,7 +85,7 @@ export const MonacoEditorPane: React.FC = () => {
         defaultLanguage="java"
         theme="vs-dark"
         value={code}
-        onChange={(val) => setCode(val || '')}
+        onChange={handleCodeChange}
         onMount={handleEditorMount}
         options={{
           automaticLayout: true,

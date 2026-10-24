@@ -3,25 +3,59 @@ import { useStudioStore } from '../../store/useStudioStore';
 import { Terminal, Trash2 } from 'lucide-react';
 
 export const ConsolePane: React.FC = () => {
-  const { consoleLogs, isCompiling } = useStudioStore();
+  const { consoleLogs, isCompiling, runCodeInConsole } = useStudioStore();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [consoleStdin, setConsoleStdin] = React.useState('');
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [consoleLogs]);
 
+  const handleRun = () => {
+    runCodeInConsole(consoleStdin);
+  };
+
+  const handleClear = () => {
+    useStudioStore.setState({ consoleLogs: [] });
+  };
+
   return (
     <div className="w-full h-full bg-[#0c0c0e] font-mono text-xs flex flex-col p-3 overflow-hidden select-text">
-      <div className="flex items-center justify-between pb-2 border-b border-border/60 text-zinc-400 mb-2">
+      <div className="flex items-center justify-between pb-2 border-b border-border/60 text-zinc-400 mb-2 gap-2">
         <div className="flex items-center gap-2">
           <Terminal className="w-3.5 h-3.5 text-blue-400" />
-          <span className="font-semibold text-zinc-300">Терминал компиляции и вывода песочницы</span>
+          <span className="font-semibold text-zinc-300">Терминал песочницы JVM</span>
           {isCompiling && (
             <span className="flex items-center gap-1.5 text-amber-400 text-[11px] animate-pulse">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
               Компиляция...
             </span>
           )}
+        </div>
+
+        {/* Console Quick Run with custom Stdin */}
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Ввод stdin (напр: 1\nORD-1 Иван 10)..."
+            value={consoleStdin}
+            onChange={(e) => setConsoleStdin(e.target.value)}
+            className="w-56 px-2 py-0.5 bg-zinc-900 border border-border rounded text-[11px] text-zinc-200 placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-500"
+          />
+          <button
+            onClick={handleRun}
+            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-semibold transition flex items-center gap-1 shadow"
+            title="Скомпилировать и запустить Main.java в песочнице с этим stdin"
+          >
+            Запустить
+          </button>
+          <button
+            onClick={handleClear}
+            className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-zinc-300 transition"
+            title="Очистить консоль"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 

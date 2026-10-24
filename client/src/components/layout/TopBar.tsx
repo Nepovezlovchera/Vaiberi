@@ -23,6 +23,12 @@ export const TopBar: React.FC = () => {
     addConsoleLog,
     isBackendOnline,
     checkBackend,
+    isDebugging,
+    startDebug,
+    stopDebug,
+    activePreset,
+    setPreset,
+    refreshGraphAndAnalysis,
   } = useStudioStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -43,6 +49,7 @@ export const TopBar: React.FC = () => {
         if (content) {
           setCode(content);
           addConsoleLog(`[${new Date().toTimeString().split(' ')[0]}] Загружен файл ${file.name} (${content.split('\n').length} строк)`);
+          refreshGraphAndAnalysis(content);
         }
       };
       reader.readAsText(file);
@@ -107,7 +114,34 @@ export const TopBar: React.FC = () => {
       </div>
 
       {/* Action Buttons (Слайд 4 ТЗ) */}
+      {/* Action Buttons (Слайд 4 ТЗ) */}
       <div className="flex items-center gap-2">
+        {/* Monolith / Demo Preset Switcher (Слайды 2, 4 ТЗ) */}
+        <div className="flex items-center bg-zinc-900 border border-border rounded-md p-0.5 text-[11px] mr-1">
+          <button
+            onClick={() => setPreset('demo')}
+            className={`px-2 py-1 rounded transition font-medium ${
+              activePreset === 'demo'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            title="Метод processOrders (Слайд 4 ТЗ)"
+          >
+            Демо (Слайд 4)
+          </button>
+          <button
+            onClick={() => setPreset('monolith')}
+            className={`px-2 py-1 rounded transition font-medium ${
+              activePreset === 'monolith'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            title="Полный монолит интернет-магазина 500 строк (Слайды 2, 6 ТЗ)"
+          >
+            Монолит (500 строк)
+          </button>
+        </div>
+
         <button
           onClick={handleImportClick}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 border border-border transition"
@@ -149,11 +183,16 @@ export const TopBar: React.FC = () => {
         </button>
 
         <button
-          onClick={() => alert('Интерактивный дебаг активирован: точки останова согласованы со строками AST.')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 border border-border transition"
+          onClick={isDebugging ? stopDebug : startDebug}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition border ${
+            isDebugging
+              ? 'bg-amber-500 text-black border-amber-400 font-bold shadow-lg shadow-amber-500/20'
+              : 'text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 border-border'
+          }`}
+          title="Интерактивный пошаговый дебаг узлов CFG графа (Слайд 4 ТЗ)"
         >
-          <Bug className="w-3.5 h-3.5 text-amber-400" />
-          <span>Дебаг</span>
+          <Bug className={`w-3.5 h-3.5 ${isDebugging ? 'text-black' : 'text-amber-400'}`} />
+          <span>{isDebugging ? 'Стоп дебаг' : 'Дебаг'}</span>
         </button>
 
         <div className="h-4 w-px bg-border mx-1" />

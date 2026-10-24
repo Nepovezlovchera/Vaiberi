@@ -152,13 +152,16 @@ export const ApiClient = {
   async mutateGraph(
     files: ProjectFileDto[],
     action: 'UPDATE_CODE' | 'DELETE_NODE' | 'INSERT_NODE' | 'REORDER',
-    nodeId: string,
-    payload?: string
+    nodeId?: string,
+    payload?: string,
+    template?: string,
+    parentId?: string,
+    index?: number
   ) {
     const res = await fetch(`${API_BASE}/graph/mutate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files, action, nodeId, payload, validate: true }),
+      body: JSON.stringify({ files, action, nodeId, payload, template, parentId, index, validate: false }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: res.statusText }));
@@ -172,11 +175,25 @@ export const ApiClient = {
     const res = await fetch(`${API_BASE}/optimize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ files, issueId: issueId || 'iss-nested-complexity', allowLlm: true }),
+      body: JSON.stringify({ files, issueId: issueId || null, allowLlm: false }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: res.statusText }));
       throw new Error(err.message || 'Ошибка оптимизации кода');
+    }
+    return res.json();
+  },
+
+  /** Прямой запуск скомпилированного кода в консоли песочницы */
+  async runCode(files: ProjectFileDto[], mainClass = 'Main', stdin = '') {
+    const res = await fetch(`${API_BASE}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files, mainClass, stdin }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      throw new Error(err.message || 'Ошибка выполнения в песочнице');
     }
     return res.json();
   },

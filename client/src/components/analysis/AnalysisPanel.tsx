@@ -12,6 +12,7 @@ export const AnalysisPanel: React.FC = () => {
     setRightTab,
     isOptimized,
     runOptimization,
+    optimizeSingleIssue,
     isCompiling,
   } = useStudioStore();
 
@@ -100,9 +101,25 @@ export const AnalysisPanel: React.FC = () => {
 
                   <p className="text-[11px] text-zinc-400 leading-relaxed mb-2">{issue.description}</p>
 
-                  <div className="pt-2 border-t border-border/40 text-[10px] text-zinc-400 flex items-start gap-1">
-                    <span className="text-zinc-500 font-semibold">Решение:</span>
+                  <div className="pt-2 border-t border-border/40 text-[10px] text-zinc-400 flex items-start gap-1 mb-2">
+                    <span className="text-zinc-500 font-semibold shrink-0">Решение:</span>
                     <span className="text-blue-300">{issue.recommendation}</span>
+                  </div>
+
+                  <div className="pt-1.5 border-t border-border/30 flex items-center justify-between">
+                    <span className="text-[10px] text-zinc-500 font-mono">Строки {issue.lineStart}–{issue.lineEnd}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        optimizeSingleIssue(issue.id);
+                      }}
+                      disabled={isCompiling}
+                      className="px-2 py-1 rounded bg-blue-950/80 hover:bg-blue-900 border border-blue-500/50 text-[10px] font-semibold text-blue-300 transition flex items-center gap-1 shadow hover:scale-105 active:scale-95"
+                      title="Применить точечное исправление по Слайду 5 ТЗ"
+                    >
+                      <Sparkles className="w-3 h-3 text-amber-300" />
+                      <span>Исправить дефект</span>
+                    </button>
                   </div>
                 </div>
               );
