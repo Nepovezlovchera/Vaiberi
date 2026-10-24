@@ -59,7 +59,10 @@ import java.util.stream.Collectors;
  */
 public final class ExtractMethod {
 
-    private static final int MIN_SEGMENT_LINES = 5;
+    // Небольшие блоки нужны для повторного запуска автофикса на уже созданном
+    // Part-методе: после первого извлечения в нём часто остаётся 3–4 строки
+    // безопасной логики, которую также можно вынести.
+    private static final int MIN_SEGMENT_LINES = 3;
 
     private ExtractMethod() {}
 
@@ -84,6 +87,19 @@ public final class ExtractMethod {
                 if (p != null) {
                     best = p;
                     bestScore = score;
+                }
+            }
+        }
+        // Даже если все непрерывные серии короче обычного порога, безопасный
+        // одиночный оператор всё равно уменьшает метод и позволяет завершить
+        // цепочку автофиксов. plan() сохраняет проверки областей видимости и
+        // возвращаемого значения.
+        if (best == null) {
+            for (int i = 0; i < st.size(); i++) {
+                Plan p = plan(m, st, i, i);
+                if (p != null && span(st.get(i)) > 0) {
+                    best = p;
+                    break;
                 }
             }
         }
