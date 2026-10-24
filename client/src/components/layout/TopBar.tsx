@@ -29,6 +29,8 @@ export const TopBar: React.FC = () => {
     activePreset,
     setPreset,
     refreshGraphAndAnalysis,
+    isAutoDemoRunning,
+    runAutoDemo,
   } = useStudioStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -40,19 +42,30 @@ export const TopBar: React.FC = () => {
     fileInputRef.current?.click();
   };
 
+  const MAX_JAVA_FILE_SIZE = 2 * 1024 * 1024; // 2 MB limit (Client-side DoS prevention)
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > MAX_JAVA_FILE_SIZE) {
+        addConsoleLog(`[SECURITY WARNING] Файл «${file.name}» превышает лимит 2 МБ.`);
+        alert(`Файл «${file.name}» превышает допустимый размер (максимум 2 МБ).`);
+        return;
+      }
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const reader = new FileReader();
       reader.onload = (event) => {
         const content = event.target?.result as string;
         if (content) {
           setCode(content);
-          addConsoleLog(`[${new Date().toTimeString().split(' ')[0]}] Загружен файл ${file.name} (${content.split('\n').length} строк)`);
+          addConsoleLog(`[${new Date().toTimeString().split(' ')[0]}] Загружен файл ${safeName} (${content.split('\n').length} строк)`);
           refreshGraphAndAnalysis(content);
         }
       };
       reader.readAsText(file);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -159,6 +172,21 @@ export const TopBar: React.FC = () => {
         </button>
 
         <div className="h-4 w-px bg-border mx-1" />
+
+        {/* Happy Path Auto Demo Button (Слайд 10 ТЗ) */}
+        <button
+          onClick={runAutoDemo}
+          disabled={isAutoDemoRunning}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition border shadow-md ${
+            isAutoDemoRunning
+              ? 'bg-purple-600 text-white animate-pulse border-purple-400'
+              : 'bg-gradient-to-r from-purple-600/90 to-pink-600/90 hover:from-purple-500 hover:to-pink-500 text-white border-purple-400/40 hover:scale-105 active:scale-95'
+          }`}
+          title="Автономный показ полного пути за 60 секунд (Слайд 10 ТЗ)"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+          <span>{isAutoDemoRunning ? 'Демо ТЗ...' : '▶ Демо ТЗ (60 сек)'}</span>
+        </button>
 
         <button
           onClick={runOptimization}

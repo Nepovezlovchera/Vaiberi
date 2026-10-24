@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import { useStudioStore } from '../../store/useStudioStore';
+import { EditorTabs } from './EditorTabs';
 
 export const MonacoEditorPane: React.FC = () => {
   const { code, setCode, activeLineRange, nodes, selectNode, refreshGraphAndAnalysis } = useStudioStore();
@@ -79,20 +80,23 @@ export const MonacoEditorPane: React.FC = () => {
   }, [activeLineRange]);
 
   return (
-    <div className="w-full h-full bg-[#18181b] overflow-hidden">
-      <Editor
-        height="100%"
-        defaultLanguage="java"
-        theme="vs-dark"
-        value={code}
-        onChange={handleCodeChange}
-        onMount={handleEditorMount}
-        options={{
-          automaticLayout: true,
-          tabSize: 4,
-          formatOnType: true,
-        }}
-      />
+    <div className="w-full h-full bg-[#18181b] flex flex-col overflow-hidden">
+      <EditorTabs />
+      <div className="flex-1 w-full h-[calc(100%-32px)] overflow-hidden">
+        <Editor
+          height="100%"
+          defaultLanguage="java"
+          theme="vs-dark"
+          value={code}
+          onChange={handleCodeChange}
+          onMount={handleEditorMount}
+          options={{
+            automaticLayout: true,
+            tabSize: 4,
+            formatOnType: true,
+          }}
+        />
+      </div>
     </div>
   );
 };

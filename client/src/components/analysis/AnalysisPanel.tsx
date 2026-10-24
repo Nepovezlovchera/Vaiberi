@@ -1,8 +1,26 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStudioStore } from '../../store/useStudioStore';
-import { AlertTriangle, AlertCircle, TrendingUp, Sparkles, Activity, FileText, CheckCircle2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  AlertCircle,
+  TrendingUp,
+  Sparkles,
+  Activity,
+  FileText,
+  CheckCircle2,
+  GitCompare,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 
 export const AnalysisPanel: React.FC = () => {
+  const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({});
+
+  const toggleDiff = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedDiffs((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   const {
     issues,
     metrics,
@@ -104,6 +122,53 @@ export const AnalysisPanel: React.FC = () => {
                   <div className="pt-2 border-t border-border/40 text-[10px] text-zinc-400 flex items-start gap-1 mb-2">
                     <span className="text-zinc-500 font-semibold shrink-0">Решение:</span>
                     <span className="text-blue-300">{issue.recommendation}</span>
+                  </div>
+
+                  {/* Diff Preview Accordion (Слайд 5 ТЗ) */}
+                  <div className="pt-1.5 border-t border-border/30 mb-2">
+                    <button
+                      onClick={(e) => toggleDiff(issue.id, e)}
+                      className="flex items-center justify-between w-full text-[10px] text-zinc-400 hover:text-zinc-200 transition py-0.5"
+                    >
+                      <span className="flex items-center gap-1 font-medium text-blue-400">
+                        <GitCompare className="w-3 h-3" />
+                        <span>Сравнить код (Diff Preview)</span>
+                      </span>
+                      {expandedDiffs[issue.id] ? (
+                        <ChevronUp className="w-3 h-3 text-zinc-500" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3 text-zinc-500" />
+                      )}
+                    </button>
+
+                    {expandedDiffs[issue.id] && (
+                      <div className="mt-1.5 p-2 bg-[#09090b] rounded border border-zinc-800/80 space-y-1.5">
+                        <div>
+                          <div className="text-[9px] font-sans font-semibold text-rose-400 uppercase tracking-wider mb-0.5">
+                            Было (Квадратичный перебор O(n²)):
+                          </div>
+                          <pre className="p-1.5 bg-rose-950/20 border border-rose-900/40 rounded text-rose-300 font-mono text-[10px] whitespace-pre-wrap leading-tight">
+                            {issue.suggestedCode
+                              ? `- ${issue.suggestedCode.split('\n')[0] || 'for (Order a : orders) ...'}`
+                              : `- for (Order a : orders) {\n-     for (Order b : processed) {\n-         if (a.getId().equals(b.getId())) ...\n-     }\n- }`}
+                          </pre>
+                        </div>
+
+                        <div>
+                          <div className="text-[9px] font-sans font-semibold text-emerald-400 uppercase tracking-wider mb-0.5">
+                            Стало (Хеш-таблица O(1) поиск):
+                          </div>
+                          <pre className="p-1.5 bg-emerald-950/20 border border-emerald-900/40 rounded text-emerald-300 font-mono text-[10px] whitespace-pre-wrap leading-tight">
+                            {issue.suggestedCode || `+ Set<String> processedIds = new HashSet<>();\n+ for (Order b : processed) processedIds.add(b.getId());\n+ for (Order a : orders) {\n+     if (processedIds.contains(a.getId())) ...\n+ }`}
+                          </pre>
+                        </div>
+
+                        <div className="pt-1 border-t border-zinc-800/60 flex items-center justify-between text-[10px]">
+                          <span className="text-amber-400 font-medium">⚡ Ожидаемый эффект: O(n), 5.2x</span>
+                          <span className="text-emerald-400 font-medium">100% Quality Gate</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="pt-1.5 border-t border-border/30 flex items-center justify-between">

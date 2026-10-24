@@ -50,26 +50,43 @@ export const TestsPane: React.FC = () => {
     setShowAddForm(false);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const MAX_TEST_FILE_SIZE = 5 * 1024 * 1024; // 5 MB limit (Client-side DoS prevention)
+
+  const processFiles = (fileList: FileList | File[]) => {
+    const validFiles: File[] = [];
+    Array.from(fileList).forEach((file) => {
+      if (file.size > MAX_TEST_FILE_SIZE) {
+        useStudioStore.getState().addConsoleLog(`[SECURITY WARNING] Файл «${file.name}» пропущен: размер превышает лимит 5 МБ.`);
+      } else {
+        validFiles.push(file);
+      }
+    });
+
+    if (validFiles.length === 0) return;
 
     const readFiles: { name: string; content: string }[] = [];
     let count = 0;
 
-    Array.from(files).forEach((file) => {
+    validFiles.forEach((file) => {
       const reader = new FileReader();
       reader.onload = (event) => {
         const content = event.target?.result as string;
-        readFiles.push({ name: file.name, content: content || '' });
+        // Sanitize filename
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        readFiles.push({ name: safeName, content: content || '' });
         count++;
-        if (count === files.length) {
+        if (count === validFiles.length) {
           loadTestFiles(readFiles);
         }
       };
       reader.readAsText(file);
     });
+  };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    processFiles(files);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -89,22 +106,7 @@ export const TestsPane: React.FC = () => {
     setIsDragOver(false);
     const files = e.dataTransfer.files;
     if (!files || files.length === 0) return;
-
-    const readFiles: { name: string; content: string }[] = [];
-    let count = 0;
-
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        readFiles.push({ name: file.name, content: content || '' });
-        count++;
-        if (count === files.length) {
-          loadTestFiles(readFiles);
-        }
-      };
-      reader.readAsText(file);
-    });
+    processFiles(files);
   };
 
   return (

@@ -24,7 +24,13 @@ export const ConsolePane: React.FC = () => {
       <div className="flex items-center justify-between pb-2 border-b border-border/60 text-zinc-400 mb-2 gap-2">
         <div className="flex items-center gap-2">
           <Terminal className="w-3.5 h-3.5 text-blue-400" />
-          <span className="font-semibold text-zinc-300">Терминал песочницы JVM</span>
+          <span className="font-semibold text-zinc-300">Терминал JVM</span>
+          <span
+            className="px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800"
+            title="Защита от Client-side DoS: Ring Buffer (максимум 1000 строк)"
+          >
+            {consoleLogs.length}/1000
+          </span>
           {isCompiling && (
             <span className="flex items-center gap-1.5 text-amber-400 text-[11px] animate-pulse">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
@@ -34,13 +40,13 @@ export const ConsolePane: React.FC = () => {
         </div>
 
         {/* Console Quick Run with custom Stdin */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <input
             type="text"
-            placeholder="Ввод stdin (напр: 1\nORD-1 Иван 10)..."
+            placeholder="Ввод stdin..."
             value={consoleStdin}
             onChange={(e) => setConsoleStdin(e.target.value)}
-            className="w-56 px-2 py-0.5 bg-zinc-900 border border-border rounded text-[11px] text-zinc-200 placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-500"
+            className="w-28 sm:w-36 md:w-44 px-2 py-0.5 bg-zinc-900 border border-border rounded text-[11px] text-zinc-200 placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-500"
           />
           <button
             onClick={handleRun}

@@ -86,9 +86,15 @@ export interface VerificationReport {
   optimizedTimeMs: number;
   speedup: string;
   complexityBefore: string;
-  complexityAfter: string;
   testResults: TestCaseResult[];
   passed?: number;
   total?: number;
+}
+
+export interface FileTab {
+  id: string;
+  name: string;
+  path: string;
+  code: string;
 }
 
