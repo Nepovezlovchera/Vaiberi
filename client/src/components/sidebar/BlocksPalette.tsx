@@ -67,7 +67,7 @@ export const BlocksPalette: React.FC = () => {
           placeholder="Поиск блоков..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-8 pr-2 py-1 bg-zinc-900 border border-border rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+          className="w-full pl-8 pr-2 py-1 bg-surface border border-border rounded text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-[#f37022]"
         />
       </div>
 

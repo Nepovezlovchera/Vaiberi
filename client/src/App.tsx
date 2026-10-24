@@ -6,8 +6,8 @@ import { BottomTabsPane } from './components/terminal/BottomTabsPane';
 import { AnalysisPanel } from './components/analysis/AnalysisPanel';
 
 export const App: React.FC = () => {
-  // Процент высоты для холста графа (по умолчанию 56%)
-  const [canvasHeightPercent, setCanvasHeightPercent] = useState<number>(56);
+  // Процент высоты для холста графа (по умолчанию 68% для крупной схемы при запуске)
+  const [canvasHeightPercent, setCanvasHeightPercent] = useState<number>(68);
   const [isDraggingSplit, setIsDraggingSplit] = useState<boolean>(false);
 
   const handleMouseDown = () => {
@@ -49,9 +49,9 @@ export const App: React.FC = () => {
           {/* Интерактивный разделитель высоты (Split Resizer) */}
           <div
             onMouseDown={handleMouseDown}
-            className="h-1.5 w-full bg-border hover:bg-blue-500 cursor-row-resize transition-colors z-20 shrink-0 flex items-center justify-center group"
+            className="h-1.5 w-full bg-border hover:bg-[#f37022] cursor-row-resize transition-colors z-20 shrink-0 flex items-center justify-center group"
           >
-            <div className="w-12 h-1 bg-zinc-600 group-hover:bg-blue-300 rounded-full" />
+            <div className="w-12 h-1 bg-zinc-500 group-hover:bg-white rounded-full transition-colors" />
           </div>
 
           {/* Низ: Нижняя таб-панель (Monaco Editor, Консоль SSE, Тесты) */}

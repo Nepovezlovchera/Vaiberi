@@ -16,7 +16,7 @@ export const EditorTabs: React.FC = () => {
   };
 
   return (
-    <div className="flex items-center bg-[#121214] border-b border-border h-8 shrink-0 px-1 overflow-x-auto select-none no-scrollbar">
+    <div className="flex items-center bg-surface-elevated border-b border-border h-8 shrink-0 px-1 overflow-x-auto select-none no-scrollbar">
       <div className="flex items-center gap-0.5">
         {openTabs.map((tab) => {
           const isActive = tab.id === activeTabId;
@@ -26,11 +26,11 @@ export const EditorTabs: React.FC = () => {
               onClick={() => setActiveTabId(tab.id)}
               className={`group flex items-center gap-1.5 px-3 py-1 text-xs cursor-pointer rounded-t transition border-t-2 ${
                 isActive
-                  ? 'bg-[#1e1e22] text-zinc-100 border-blue-500 font-medium shadow-sm'
-                  : 'bg-transparent text-zinc-400 border-transparent hover:bg-zinc-800/40 hover:text-zinc-200'
+                  ? 'bg-surface text-zinc-100 border-[#f37022] font-semibold shadow-sm'
+                  : 'bg-transparent text-zinc-400 border-transparent hover:bg-surface/50 hover:text-zinc-200'
               }`}
             >
-              <FileCode className={`w-3.5 h-3.5 ${isActive ? 'text-blue-400' : 'text-zinc-500'}`} />
+              <FileCode className={`w-3.5 h-3.5 ${isActive ? 'text-[#f37022]' : 'text-zinc-500'}`} />
               <span className="truncate max-w-[120px] font-mono text-[11px]">{tab.name}</span>
               {openTabs.length > 1 && (
                 <button

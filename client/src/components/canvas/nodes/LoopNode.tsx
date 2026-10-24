@@ -6,21 +6,21 @@ export const LoopNode: React.FC<NodeProps> = ({ data, selected }) => {
   return (
     <div
       className={`relative min-w-[300px] rounded-lg bg-surface border transition-all duration-200 shadow-lg ${
-        selected ? 'border-blue-400 ring-2 ring-blue-500/30' : 'border-blue-500/40 hover:border-blue-500/70'
+        selected ? 'border-[#f37022] ring-2 ring-[#f37022]/30' : 'border-[#f37022]/40 hover:border-[#f37022]/70'
       } ${data.hasIssue ? 'border-rose-500/80 shadow-rose-950/40' : ''}`}
     >
       <Handle
         type="target"
         position={Position.Top}
-        className="!bg-zinc-400 !w-3 !h-3 !border-2 !border-zinc-950 hover:!scale-125 transition-transform"
+        className="!bg-zinc-400 !w-3 !h-3 !border-2 !border-surface hover:!scale-125 transition-transform"
       />
 
-      <div className="flex items-center justify-between px-3 py-1.5 bg-blue-950/40 border-b border-blue-500/20 rounded-t-lg">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#f37022]/10 dark:bg-[#f37022]/20 border-b border-[#f37022]/20 rounded-t-lg">
         <div className="flex items-center gap-2">
-          <Repeat className="w-3.5 h-3.5 text-blue-400" />
-          <span className="text-xs font-semibold text-blue-300">{String(data.label || 'Цикл')}</span>
+          <Repeat className="w-3.5 h-3.5 text-[#f37022]" />
+          <span className="text-xs font-semibold text-[#f37022] dark:text-[#ff7b29]">{String(data.label || 'Цикл')}</span>
           {Boolean(data.loopType) && (
-            <span className="text-[10px] font-mono text-blue-200 bg-blue-900/50 px-1.5 py-0.5 rounded border border-blue-500/30">
+            <span className="text-[10px] font-mono text-[#f37022] bg-[#f37022]/10 px-1.5 py-0.5 rounded border border-[#f37022]/30">
               {String(data.loopType)}
             </span>
           )}
@@ -47,9 +47,9 @@ export const LoopNode: React.FC<NodeProps> = ({ data, selected }) => {
         id="body"
         type="source"
         position={Position.Right}
-        className="!bg-blue-400 !w-3.5 !h-3.5 !border-2 !border-zinc-950 hover:!scale-125 transition-transform"
+        className="!bg-[#f37022] !w-3.5 !h-3.5 !border-2 !border-surface hover:!scale-125 transition-transform"
       />
-      <div className="absolute -right-12 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-blue-950/80 border border-blue-500/40 text-[10px] font-bold text-blue-300 select-none shadow">
+      <div className="absolute -right-12 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-[#f37022]/15 border border-[#f37022]/40 text-[10px] font-bold text-[#f37022] dark:text-[#ff7b29] select-none shadow">
         Тело
       </div>
 
@@ -58,7 +58,7 @@ export const LoopNode: React.FC<NodeProps> = ({ data, selected }) => {
         id="next"
         type="source"
         position={Position.Bottom}
-        className="!bg-blue-500 !w-3 !h-3 !border-2 !border-zinc-950 hover:!scale-125 transition-transform"
+        className="!bg-[#f37022] !w-3 !h-3 !border-2 !border-surface hover:!scale-125 transition-transform"
       />
     </div>
   );
