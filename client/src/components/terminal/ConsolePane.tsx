@@ -3,9 +3,8 @@ import { useStudioStore } from '../../store/useStudioStore';
 import { Terminal, Trash2 } from 'lucide-react';
 
 export const ConsolePane: React.FC = () => {
-  const { consoleLogs, isCompiling, runCodeInConsole } = useStudioStore();
+  const { consoleLogs, isCompiling, runCodeInConsole, consoleStdin, setConsoleStdin } = useStudioStore();
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [consoleStdin, setConsoleStdin] = React.useState('');
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });

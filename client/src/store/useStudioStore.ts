@@ -128,6 +128,9 @@ interface StudioState {
   optimizeSingleIssue: (issueId: string) => Promise<void>;
   runTests: () => Promise<void>;
   runCodeInConsole: (stdin?: string) => Promise<void>;
+  /** Текст поля «Ввод stdin» терминала: общий для кнопки «Запуск» в шапке и кнопки терминала */
+  consoleStdin: string;
+  setConsoleStdin: (v: string) => void;
   addTestCase: (name: string, stdin: string, expectedStdout?: string) => void;
   updateTestCase: (id: string, updates: Partial<TestCaseResult>) => void;
   removeTestCase: (id: string) => void;
@@ -156,6 +159,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   activeFileId: 'file-main',
   code: INITIAL_JAVA_CODE,
   baselineCode: null,
+  consoleStdin: '',
+  setConsoleStdin: (v: string) => set({ consoleStdin: v }),
 
   isBackendOnline: false,
 
@@ -704,6 +709,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const now = new Date().toTimeString().split(' ')[0];
     get().addConsoleLog(`[${now}] Компиляция и запуск Main.java в песочнице JVM...`);
 
+    if (!isBackendOnline) {
+      get().addConsoleLog(`[${now}] [WARN] Бэкенд оффлайн: запуск программы недоступен.`);
+      return;
+    }
     if (isBackendOnline) {
       try {
         const res = await ApiClient.runCode([{ path: 'Main.java', source: code }], 'Main', stdin);

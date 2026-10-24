@@ -17,6 +17,8 @@ export const TopBar: React.FC = () => {
   const {
     runOptimization,
     runTests,
+    runCodeInConsole,
+    consoleStdin,
     isCompiling,
     isRunningTests,
     isOptimized,
@@ -161,12 +163,12 @@ export const TopBar: React.FC = () => {
         </button>
 
         <button
-          onClick={runTests}
-          disabled={isRunningTests}
+          onClick={() => runCodeInConsole(consoleStdin && !consoleStdin.endsWith('\n') ? consoleStdin + '\n' : consoleStdin)}
+          title="Скомпилировать и запустить программу; вывод — в терминале JVM (ввод берётся из поля stdin терминала)"
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-600/40 transition shrink-0 whitespace-nowrap"
         >
           <Play className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-          <span>{isRunningTests ? 'Запуск...' : 'Запуск'}</span>
+          <span>Запуск</span>
         </button>
 
         {/* 2. Позиционирование кнопки «🐞 Дебаг» (Слайд 4, Слайд 8) */}
