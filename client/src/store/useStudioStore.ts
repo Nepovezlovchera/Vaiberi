@@ -9,9 +9,8 @@ import {
   INITIAL_NODES,
   INITIAL_EDGES,
   INITIAL_TESTS,
-  SAMPLE_MONOLITH_CODE,
-  SAMPLE_MONOLITH_TESTS,
 } from './mockData';
+import { SAMPLE_MONOLITH_CODE, SAMPLE_MONOLITH_TESTS } from './monolithData';
 import { ApiClient, ApiError, MethodGraphResponseDto, MutateRequestDto, ProjectFileDto } from '../api/apiClient';
 import { connectPlacement, isEntryNode, moveAfter, moveInside, nodeIdAt, paletteSnippet, placeAfter, placeInside } from './graphEdits';
 import { methodToFlow, methodOfNode, pickInitialMethod, toIssues, toMethodInfos, toMetrics } from './graphMapper';
