@@ -38,10 +38,10 @@ export const ConsolePane: React.FC = () => {
 
   return (
     <div className="w-full h-full bg-surface font-mono text-xs flex flex-col p-3 overflow-hidden select-text text-zinc-200">
-      <div className="flex items-center justify-between pb-2 border-b border-border text-zinc-400 mb-2 gap-2">
-        <div className="flex items-center gap-2">
-          <Terminal className="w-3.5 h-3.5 text-[#f37022]" />
-          <span className="font-semibold text-zinc-200">Терминал JVM</span>
+      <div className="flex flex-wrap items-center justify-between pb-2 border-b border-border text-zinc-400 mb-2 gap-2 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Terminal className="w-3.5 h-3.5 text-[#f37022] shrink-0" />
+          <span className="font-semibold text-zinc-200 whitespace-nowrap">Терминал JVM</span>
           <span
             className="px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-400 bg-surface-elevated border border-border"
             title="Защита от Client-side DoS: Ring Buffer (максимум 1000 строк)"

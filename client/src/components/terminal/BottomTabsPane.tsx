@@ -100,12 +100,12 @@ export const BottomTabsPane: React.FC = () => {
             </div>
 
             {/* Column 2: Sandbox JVM Terminal (28%) */}
-            <div className="w-[28%] h-full overflow-hidden flex flex-col">
+            <div className="w-[28%] min-w-0 h-full overflow-hidden flex flex-col">
               <ConsolePane />
             </div>
 
             {/* Column 3: Quality Gate Test Suite (30%) */}
-            <div className="w-[30%] h-full overflow-hidden flex flex-col">
+            <div className="w-[30%] min-w-0 h-full overflow-hidden flex flex-col">
               <TestsPane />
             </div>
           </div>
