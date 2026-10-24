@@ -251,7 +251,10 @@ class OptimizerServiceTest {
         OptimizeResponse firstFix = optimizer.optimize(new OptimizeRequest(files, first.id(), false));
         CodeIssue helper = issue(firstFix.files(), "LONG_METHOD", "Main.runPart1");
         OptimizeResponse secondFix = optimizer.optimize(new OptimizeRequest(firstFix.files(), helper.id(), false));
-        assertTrue(secondFix.files().get(0).source().contains("runPart1Part"), secondFix.files().get(0).source());
+        // Повторное извлечение из вспомогательного метода не наращивает суффикс (runPart1Part1…), а берёт следующий номер
+        String out = secondFix.files().get(0).source();
+        assertTrue(out.contains("runPart2("), out);
+        assertTrue(out.contains("int runPart1(") && out.contains("int runPart2("), out);
         assertSameBehavior(files, secondFix.files());
     }
 
