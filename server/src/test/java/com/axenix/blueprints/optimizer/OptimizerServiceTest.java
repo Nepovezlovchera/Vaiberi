@@ -301,4 +301,68 @@ class OptimizerServiceTest {
         assertTrue(r.files().get(0).source().contains("return first(ys);"), r.files().get(0).source());
         assertSameBehavior(files, r.files());
     }
+
+    private static final String IDX = String.join("\n",
+            "import java.util.*;",
+            "public class Main {",
+            "    static class Order {",
+            "        final int id;",
+            "        final String name;",
+            "        Order(int id, String name) { this.id = id; this.name = name; }",
+            "    }",
+            "    static int countDuplicateIds(List<Order> orders) {",
+            "        int count = 0;",
+            "        for (int i = 0; i < orders.size(); i++) {",
+            "            for (int j = i + 1; j < orders.size(); j++) {",
+            "                if (orders.get(i).id == orders.get(j).id) {",
+            "                    count += j - i;",
+            "                }",
+            "            }",
+            "        }",
+            "        return count;",
+            "    }",
+            "    static int byName(List<Order> orders) {",
+            "        int count = 0;",
+            "        for (int i = 0; i < orders.size(); i++) {",
+            "            for (int j = 0; j < orders.size(); j++) {",
+            "                if (orders.get(i).name.equals(orders.get(j).name)) {",
+            "                    count += i * 3 + j;",
+            "                }",
+            "            }",
+            "        }",
+            "        return count;",
+            "    }",
+            "    static int refCompare(List<Order> orders) {",
+            "        int count = 0;",
+            "        for (int i = 0; i < orders.size(); i++) {",
+            "            for (int j = i + 1; j < orders.size(); j++) {",
+            "                if (orders.get(i).name == orders.get(j).name) {",
+            "                    count++;",
+            "                }",
+            "            }",
+            "        }",
+            "        return count;",
+            "    }",
+            "    public static void main(String[] a) {",
+            "        List<Order> l = new ArrayList<>();",
+            "        String[] n = {\"a\", \"b\", \"a\", \"c\", \"b\"};",
+            "        for (int k = 0; k < 30; k++) l.add(new Order(k % 7, n[k % 5]));",
+            "        System.out.println(countDuplicateIds(l) + \" \" + byName(l) + \" \" + refCompare(l));",
+            "    }",
+            "}");
+
+    /** Индексные циклы i/j: индекс позиций по ключу; == только для примитивов, у ссылочных типов шаблон отказывает. */
+    @Test
+    void indexedPairLoopsUsePositionIndexAndKeepBehavior() {
+        List<ProjectFile> files = List.of(new ProjectFile("Main.java", IDX));
+        OptimizeResponse r1 = optimizer.optimize(new OptimizeRequest(files, issue(files, "NESTED_LOOP", "Main.countDuplicateIds").id(), false));
+        List<ProjectFile> step = r1.files();
+        assertTrue(step.get(0).source().contains("posByKey"), step.get(0).source());
+        OptimizeResponse r2 = optimizer.optimize(new OptimizeRequest(step, issue(step, "NESTED_LOOP", "Main.byName").id(), false));
+        assertSameBehavior(files, r2.files());
+        assertTrue(analyzer.analyze(r2.files()).issues().stream()
+                .noneMatch(x -> x.type().equals("NESTED_LOOP") && x.nodeId().startsWith("Main.countDuplicateIds")), r2.files().get(0).source());
+        CodeIssue unsafe = issue(files, "NESTED_LOOP", "Main.refCompare");
+        assertThrows(IllegalArgumentException.class, () -> optimizer.optimize(new OptimizeRequest(files, unsafe.id(), false)));
+    }
 }
